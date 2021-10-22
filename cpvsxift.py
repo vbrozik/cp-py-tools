@@ -80,7 +80,17 @@ sh_get_vsids = inspect.cleandoc(r'''
 
 
 def collect_interfaces(in_file: Optional[TextIO] = None) -> AllInterfaces:
-    """Collect interfaces from shell code run on individual VSX nodes."""
+    """Collect interfaces from shell code run on individual VSX nodes.
+
+    Procedure:
+        * A shell code is show.
+        * The user runs it on individual VSX nodes. (in expert mode)
+        * The user copies the output from alle the VSX nodes back as the input
+            for this function. It is preferred to store this output to a text
+            file to be able to reuse it easily.
+        * The function parses the information from the text
+            to the AllInterfacese data structure.
+    """
     if in_file is None:
         in_file = sys.stdin
     if in_file.isatty():
