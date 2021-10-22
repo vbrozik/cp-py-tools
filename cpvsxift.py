@@ -33,18 +33,18 @@ class Interface:
 
 
 class VSXDestinations(NamedTuple):
-    """InterfacePingDestinations."""
+    """Interface ping destinations."""
 
     vsxsrc: str
     vsxdsts: tuple[str, ...]
 
 
-# VSXhost -> VSID -> ifname -> interface
+# Container for interfaces organized: VSXhost -> VSID -> ifname -> interface
 AllInterfaces = NewType(
                 'AllInterfaces', Dict[str, Dict[int, Dict[str, Interface]]])
 
 
-# VSID -> ifname -> VSXhost -> interface
+# Container for interfaces organized: VSID -> ifname -> VSXhost -> interface
 InterfacesByVSID = NewType(
                 'InterfacesByVSID', Dict[int, Dict[str, Dict[str, Interface]]])
 
@@ -56,7 +56,7 @@ class Config:
     show_only_errors = True
     # do not show successful pings
     arping_num = 2
-    # number of ping to a single destination
+    # number of pings to a single destination
     diag_listings = False
     # enable diagnostic outputs
     batch_ping = True
@@ -83,7 +83,7 @@ def collect_interfaces(in_file: Optional[TextIO] = None) -> AllInterfaces:
     """Collect interfaces from shell code run on individual VSX nodes.
 
     Procedure:
-        * A shell code is show.
+        * A shell code is shown.
         * The user runs it on individual VSX nodes. (in expert mode)
         * The user copies the output from alle the VSX nodes back as the input
             for this function. It is preferred to store this output to a text
