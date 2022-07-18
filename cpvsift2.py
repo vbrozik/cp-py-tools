@@ -18,8 +18,8 @@ def main():
     print(
         'Use this script on every VSX to collect interfaces to a file:\n'
         r"""printf "cat >%s << '+++EOF'\n" """
-        r""" "$(date -I)_$(hostname)_interfaces.txt" """
-        r"""&& ip -all netns exec ip -4 -o addr ; printf '+++EOF\n'"""
+        r'''"$(date -I)_$(hostname)_interfaces.txt" &&''' '\n'
+        r"""ip -all netns exec ip -4 -o addr ; printf '+++EOF\n'"""
         '\n')
     parser = argparse.ArgumentParser()
     parser.add_argument(
