@@ -89,7 +89,7 @@ def collect_interfaces(in_file: Optional[TextIO] = None) -> AllInterfaces:
             for this function. It is preferred to store this output to a text
             file to be able to reuse it easily.
         * The function parses the information from the text
-            to the AllInterfacese data structure.
+            to the AllInterfaces data structure.
     """
     if in_file is None:
         in_file = sys.stdin
