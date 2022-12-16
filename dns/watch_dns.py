@@ -47,7 +47,7 @@ class DNSRecord:
         www.seznam.cz.  0   IN  A   77.75.79.222
     """
     name: str
-    ttl: int = field(compare=False)
+    ttl: str = field(compare=False)
     class_: str
     type_: str
     rdata: str
