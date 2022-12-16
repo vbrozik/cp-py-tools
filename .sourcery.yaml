@@ -1,0 +1,5 @@
+# Support Python 3.7+ (Check Point Gaia)
+# https://docs.sourcery.ai/Configuration/Project-Settings/
+
+refactor:
+  python_version: '3.7'
