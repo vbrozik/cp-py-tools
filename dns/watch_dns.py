@@ -22,7 +22,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Any, List, Sequence, cast
+from typing import IO, Any, List, NoReturn, Sequence, cast
 
 DEFAULT_INTERVAL = 5
 DEFAULT_LOG_DIR = '/var/log/watch_dns'
@@ -218,43 +218,32 @@ def str_dict(dictionary: dict) -> str:
             for key, value in dictionary.items())
 
 
-def main(argv: Sequence[str]):
-    """Provide CLI interface."""
-    parser = argparse.ArgumentParser(
-        description='watch DNS resolution changes in time')
-    parser.add_argument(
-        'name', help='DNS name to watch')
-    parser.add_argument(
-        '-i', '--interval', type=float, default=DEFAULT_INTERVAL,
-        help='the interval to check the DNS resolution')
-    args = parser.parse_args(argv)
-    log_file_name_params = {
-            'date_time': datetime.datetime.now().strftime('%Y%m%d_%H%M')}
-    log_file_name = string.Template(DEFAULT_LOG).substitute(log_file_name_params)
-    log_file_cp_dom_name = string.Template(
-            DEFAULT_LOG_CP_DOMAINS).substitute(log_file_name_params)
+def monitor_loop(
+        log_file: IO[str], log_file_cp_dom: IO[str], args: argparse.Namespace
+        ) -> NoReturn:
+    """Perform the infinite DNS monitoring loop."""
     last_dig_result = DNSResult(time=datetime.datetime.now(datetime.timezone.utc))
     last_cp_addresses: set[str] = set()
     dig_ip_mru = LatestUnique()
-    with \
-            open(log_file_name, 'a', encoding='utf-8') as log_file, \
-            open(log_file_cp_dom_name, 'a', encoding='utf-8') as log_file_cp_dom:
-        while True:
-            dig_result = dig_simple(args.name)
-            dig_changed = last_dig_result.changed(dig_result)
-            txt_time_stamp = dig_result.time.astimezone().isoformat(timespec="seconds")
-            if dig_changed:
-                print(
-                        f'{txt_time_stamp} [dig]      {str_dict(dig_changed)}',
-                        file=log_file)
-            cp_addresses, message = cp_domains_get_addresses(args.name)
-            if message:
-                print(
-                        f'{txt_time_stamp} [cp-d] -d ------\n{message}',
-                        file=log_file_cp_dom)
-            if cp_addresses != last_cp_addresses:
-                print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
-            dig_a_records = dig_result.get_records('A')
+    while True:
+        dig_result = dig_simple(args.name)
+        dig_changed = last_dig_result.changed(dig_result)
+        txt_time_stamp = dig_result.time.astimezone().isoformat(timespec="seconds")
+        if dig_changed:
+            print(
+                    f'{txt_time_stamp} [dig]      {str_dict(dig_changed)}',
+                    file=log_file)
+        cp_addresses, message = cp_domains_get_addresses(args.name)
+        if message:
+            print(
+                    f'{txt_time_stamp} [cp-d] -d ------\n{message}',
+                    file=log_file_cp_dom)
+        if cp_addresses != last_cp_addresses:
+            print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
+        dig_a_records = dig_result.get_records('A')
+        if not dig_a_records:
+            print(f'{txt_time_stamp} [dig]      no A records!')
+        else:
             changes = dig_ip_mru.add_multi(dig_a_records)
             if changes > 2:
                 print(
@@ -277,11 +266,32 @@ def main(argv: Sequence[str]):
                     print(
                             f'{txt_time_stamp} [cp-d] -ip ------\n{message}',
                             file=log_file_cp_dom)
-            log_file.flush()
-            log_file_cp_dom.flush()
-            last_dig_result = dig_result
-            last_cp_addresses = cp_addresses
-            time.sleep(args.interval)
+        log_file.flush()
+        log_file_cp_dom.flush()
+        last_dig_result = dig_result
+        last_cp_addresses = cp_addresses
+        time.sleep(args.interval)
+
+
+def main(argv: Sequence[str]):
+    """Provide CLI interface."""
+    parser = argparse.ArgumentParser(
+        description='watch DNS resolution changes in time')
+    parser.add_argument(
+        'name', help='DNS name to watch')
+    parser.add_argument(
+        '-i', '--interval', type=float, default=DEFAULT_INTERVAL,
+        help='the interval to check the DNS resolution')
+    args = parser.parse_args(argv)
+    log_file_name_params = {
+            'date_time': datetime.datetime.now().strftime('%Y%m%d_%H%M')}
+    log_file_name = string.Template(DEFAULT_LOG).substitute(log_file_name_params)
+    log_file_cp_dom_name = string.Template(
+            DEFAULT_LOG_CP_DOMAINS).substitute(log_file_name_params)
+    with \
+            open(log_file_name, 'a', encoding='utf-8') as log_file, \
+            open(log_file_cp_dom_name, 'a', encoding='utf-8') as log_file_cp_dom:
+        monitor_loop(log_file, log_file_cp_dom, args)
 
 
 if __name__ == '__main__':
