@@ -242,7 +242,7 @@ def monitor_loop(
             print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
         dig_a_records = dig_result.get_records('A')
         if not dig_a_records:
-            print(f'{txt_time_stamp} [dig]      no A records!')
+            print(f'{txt_time_stamp} [dig]      no A records!', file=log_file)
         else:
             changes = dig_ip_mru.add_multi(dig_a_records)
             if changes > 2:
