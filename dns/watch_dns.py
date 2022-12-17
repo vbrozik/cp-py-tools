@@ -25,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import Any, List, Sequence, cast
 
 DEFAULT_INTERVAL = 5
-# DEFAULT_LOG_DIR = '/var/log'
 DEFAULT_LOG_DIR = '/var/log/watch_dns'
 DEFAULT_LOG = DEFAULT_LOG_DIR + '/watch_dns_${date_time}.log'
 DEFAULT_LOG_CP_DOMAINS = DEFAULT_LOG_DIR + '/watch_dns_cpdom_${date_time}.log'
@@ -113,13 +112,12 @@ class LatestUnique(list):
         return index + 1
 
     def add_multi(self, value_list) -> int:
-        """Add multiple values."""
+        """Add multiple values, return the biggest change."""
         return max(self.add(value) for value in value_list)
 
 
 def dig_simple(name: str) -> DNSResult:
     """Perform simple DNS query."""
-    # time = datetime.datetime.now().astimezone()
     current_time = datetime.datetime.now(datetime.timezone.utc)
     result = subprocess.run(
             ('dig', '+noall', '+answer', '+comments', name),
@@ -163,6 +161,8 @@ def dig_simple(name: str) -> DNSResult:
 def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]:
     """Parse output of Check Point domains_tool.
 
+    Returns: list of values as strings, boolean success of parsing
+
     Todo:
         * Match end of table?
     """
@@ -173,7 +173,6 @@ def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]
     output_lines = iter(command_output.splitlines())
     if not is_separator(next(output_lines, '')):
         return result, False
-        # raise ValueError("domains_tool output does not start by separator")
     header_re = re.escape(header)
     in_body = False
     for line in output_lines:
