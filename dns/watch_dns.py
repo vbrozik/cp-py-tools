@@ -218,6 +218,35 @@ def str_dict(dictionary: dict) -> str:
             for key, value in dictionary.items())
 
 
+def check_a_records(
+        dig_a_records: list[str], cp_addresses: set[str], txt_time_stamp: str,
+        dig_ip_mru: LatestUnique, log_file: IO[str], log_file_cp_dom: IO[str],
+        args: argparse.Namespace) -> None:
+    """Check A records obtained from dig."""
+    changes = dig_ip_mru.add_multi(dig_a_records)
+    if changes > 2:
+        print(
+                f'{txt_time_stamp} '
+                f'[dig_{changes}]    latest IPs: {dig_ip_mru}',
+                file=log_file)
+    if not set(dig_a_records) <= cp_addresses:
+        print(
+                f'{txt_time_stamp} '
+                f'[miss_ip]  dig: {dig_a_records}\tcp: {cp_addresses}',
+                file=log_file)
+    for dig_ip in dig_a_records:
+        cp_domains, message = cp_domains_get_domains(dig_ip)
+        if args.name not in cp_domains:
+            print(
+                    f'{txt_time_stamp} '
+                    f'[miss_dom] {dig_ip} resolves to {cp_domains}',
+                    file=log_file)
+        if message:
+            print(
+                    f'{txt_time_stamp} [cp-d] -ip ------\n{message}',
+                    file=log_file_cp_dom)
+
+
 def monitor_loop(
         log_file: IO[str], log_file_cp_dom: IO[str], args: argparse.Namespace
         ) -> NoReturn:
@@ -241,31 +270,12 @@ def monitor_loop(
         if cp_addresses != last_cp_addresses:
             print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
         dig_a_records = dig_result.get_records('A')
-        if not dig_a_records:
-            print(f'{txt_time_stamp} [dig]      no A records!', file=log_file)
+        if dig_a_records:
+            check_a_records(
+                    dig_a_records, cp_addresses, txt_time_stamp, dig_ip_mru,
+                    log_file, log_file_cp_dom, args)
         else:
-            changes = dig_ip_mru.add_multi(dig_a_records)
-            if changes > 2:
-                print(
-                        f'{txt_time_stamp} '
-                        f'[dig_{changes}]    latest IPs: {dig_ip_mru}',
-                        file=log_file)
-            if not set(dig_a_records) <= cp_addresses:
-                print(
-                        f'{txt_time_stamp} '
-                        f'[miss_ip]  dig: {dig_a_records}\tcp: {cp_addresses}',
-                        file=log_file)
-            for dig_ip in dig_a_records:
-                cp_domains, message = cp_domains_get_domains(dig_ip)
-                if args.name not in cp_domains:
-                    print(
-                            f'{txt_time_stamp} '
-                            f'[miss_dom] {dig_ip} resolves to {cp_domains}',
-                            file=log_file)
-                if message:
-                    print(
-                            f'{txt_time_stamp} [cp-d] -ip ------\n{message}',
-                            file=log_file_cp_dom)
+            print(f'{txt_time_stamp} [dig]      no A records!', file=log_file)
         log_file.flush()
         log_file_cp_dom.flush()
         last_dig_result = dig_result
