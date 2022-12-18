@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import pathlib
 import re
 import string
 import subprocess
@@ -293,6 +294,7 @@ def main(argv: Sequence[str]):
         '-i', '--interval', type=float, default=DEFAULT_INTERVAL,
         help='the interval to check the DNS resolution')
     args = parser.parse_args(argv)
+    pathlib.Path(DEFAULT_LOG_DIR).mkdir(exist_ok=True)
     log_file_name_params = {
             'date_time': datetime.datetime.now().strftime('%Y%m%d_%H%M')}
     log_file_name = string.Template(DEFAULT_LOG).substitute(log_file_name_params)
