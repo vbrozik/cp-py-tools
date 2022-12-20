@@ -1,5 +1,9 @@
 ; https://pylint.pycqa.org/en/latest/user_guide/configuration/index.html
 
+[MASTER]
+init-hook='import sys; sys.path.append("lib_python")'
+; extension-pkg-whitelist=lib_python
+
 [MAIN]
 ; disable=
 
