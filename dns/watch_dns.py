@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import os
 import pathlib
 import re
 import string
@@ -32,6 +33,12 @@ DEFAULT_LOG_CP_DOMAINS = DEFAULT_LOG_DIR + '/watch_dns_cpdom_${date_time}.log'
 
 CLI_TOOLS_ENCODING = sys.getdefaultencoding()   # probably wrong, TODO test on Windows
 NULL_TIME = datetime.datetime(1, 1, 1)
+
+lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib_python')
+sys.path.insert(0, lib_dir)
+
+# pylint: disable=wrong-import-position
+from vbc.subprocess_ext import AuditedRun  # noqa: E402
 
 
 @dataclass(eq=True)
@@ -61,7 +68,7 @@ class DNSRecord:
 @dataclass(eq=True)
 class DNSResult:
     """Store result of a DNS query using dig."""
-    time: datetime.datetime
+    dig_run: AuditedRun = field(default_factory=AuditedRun)
     status: str = ''
     answers: Sequence[DNSRecord] = ()
     communication_error: str = ''
@@ -119,20 +126,19 @@ class LatestUnique(list):
 
 def dig_simple(name: str) -> DNSResult:
     """Perform simple DNS query."""
-    current_time = datetime.datetime.now(datetime.timezone.utc)
-    result = subprocess.run(
+    run_result = AuditedRun.run(
             ('dig', '+noall', '+answer', '+comments', name),
             capture_output=True, encoding=CLI_TOOLS_ENCODING, check=False)
-    response_lines = iter(result.stdout.splitlines())
+    response_lines = iter(run_result.stdout.splitlines())
     first_line = re.sub(r'^;;\s+', '', next(response_lines, ''))
     if first_line.lower() != 'got answer:':
         return DNSResult(
-            time=current_time,
+            dig_run=run_result,
             communication_error=(first_line or 'no output from dig'))
-    if result.returncode:
+    if run_result.returncode:
         return DNSResult(
-            time=current_time,
-            communication_error=f'dig returned status code: {result.returncode}')
+            dig_run=run_result,
+            communication_error=f'dig returned status code: {run_result.returncode}')
     status = ''
     answer_section = False
     answers: list[DNSRecord] = []
@@ -156,7 +162,8 @@ def dig_simple(name: str) -> DNSResult:
                     line)
             if match:
                 answers.append(DNSRecord(**match.groupdict()))
-    return DNSResult(time=current_time, status=status, answers=answers)
+    return DNSResult(
+            dig_run=run_result, status=status, answers=answers)
 
 
 def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]:
@@ -252,13 +259,14 @@ def monitor_loop(
         log_file: IO[str], log_file_cp_dom: IO[str], args: argparse.Namespace
         ) -> NoReturn:
     """Perform the infinite DNS monitoring loop."""
-    last_dig_result = DNSResult(time=datetime.datetime.now(datetime.timezone.utc))
+    last_dig_result = DNSResult()
     last_cp_addresses: set[str] = set()
     dig_ip_mru = LatestUnique()
     while True:
         dig_result = dig_simple(args.name)
         dig_changed = last_dig_result.changed(dig_result)
-        txt_time_stamp = dig_result.time.astimezone().isoformat(timespec="seconds")
+        txt_time_stamp = dig_result.dig_run.start_time.astimezone().isoformat(
+                timespec="seconds")
         if dig_changed:
             print(
                     f'{txt_time_stamp} [dig]      {str_dict(dig_changed)}',
