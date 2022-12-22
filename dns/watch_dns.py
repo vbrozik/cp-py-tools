@@ -29,6 +29,7 @@ DEFAULT_INTERVAL = 5
 DEFAULT_LOG_DIR = '/var/log/watch_dns'
 DEFAULT_LOG = DEFAULT_LOG_DIR + '/watch_dns_${date_time}.log'
 DEFAULT_LOG_CP_DOMAINS = DEFAULT_LOG_DIR + '/watch_dns_cpdom_${date_time}.log'
+DEFAULT_LOG_COMMANDS = DEFAULT_LOG_DIR + '/watch_dns_cmd_${date_time}.log'
 
 CLI_TOOLS_ENCODING = sys.getdefaultencoding()   # probably wrong, TODO test on Windows
 NULL_TIME = datetime.datetime(1, 1, 1)
@@ -124,9 +125,13 @@ def str_dict(dictionary: dict) -> str:
 def check_a_records(
         dig_a_records: list[str], cp_addresses: set[str], txt_time_stamp: str,
         dig_ip_mru: LatestUnique, log_file: IO[str], log_file_cp_dom: IO[str],
-        args: argparse.Namespace) -> None:
-    """Check A records obtained from dig."""
+        args: argparse.Namespace) -> bool:
+    """Check A records obtained from dig.
+
+    Returns: True if commands should be logged.
+    """
     changes = dig_ip_mru.add_multi(dig_a_records)
+    log_commands = False
     if changes > 2:
         print(
                 f'{txt_time_stamp} '
@@ -137,6 +142,7 @@ def check_a_records(
                 f'{txt_time_stamp} '
                 f'[miss_ip]  dig: {dig_a_records}\tcp: {cp_addresses}',
                 file=log_file)
+        log_commands = True
     for dig_ip in dig_a_records:
         cp_domains, message = cp_domains_get_domains(dig_ip)
         if args.name not in cp_domains:
@@ -144,20 +150,23 @@ def check_a_records(
                     f'{txt_time_stamp} '
                     f'[miss_dom] {dig_ip} resolves to {cp_domains}',
                     file=log_file)
+            log_commands = True
         if message:
             print(
                     f'{txt_time_stamp} [cp-d] -ip ------\n{message}',
                     file=log_file_cp_dom)
+    return log_commands
 
 
 def monitor_loop(
-        log_file: IO[str], log_file_cp_dom: IO[str], args: argparse.Namespace
-        ) -> NoReturn:
+        log_file: IO[str], log_file_cp_dom: IO[str], log_file_cp_cmd: IO[str],
+        args: argparse.Namespace) -> NoReturn:
     """Perform the infinite DNS monitoring loop."""
     last_dig_result = DNSResult()
     last_cp_addresses: set[str] = set()
     dig_ip_mru = LatestUnique()
     while True:
+        log_commands = False
         dig_result = dig_simple(args.name)
         dig_changed = last_dig_result.changed(dig_result)
         txt_time_stamp = dig_result.dig_run.start_time.astimezone().isoformat(
@@ -175,11 +184,15 @@ def monitor_loop(
             print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
         dig_a_records = dig_result.get_records('A')
         if dig_a_records:
-            check_a_records(
+            log_commands = (
+                log_commands
+                or check_a_records(
                     dig_a_records, cp_addresses, txt_time_stamp, dig_ip_mru,
-                    log_file, log_file_cp_dom, args)
+                    log_file, log_file_cp_dom, args))
         else:
             print(f'{txt_time_stamp} [dig]      no A records!', file=log_file)
+        if log_commands:
+            dig_result.dig_run.log(log_file_cp_cmd)
         log_file.flush()
         log_file_cp_dom.flush()
         last_dig_result = dig_result
@@ -203,10 +216,13 @@ def main(argv: Sequence[str]):
     log_file_name = string.Template(DEFAULT_LOG).substitute(log_file_name_params)
     log_file_cp_dom_name = string.Template(
             DEFAULT_LOG_CP_DOMAINS).substitute(log_file_name_params)
+    log_file_cp_cmd_name = string.Template(
+            DEFAULT_LOG_COMMANDS).substitute(log_file_name_params)
     with \
             open(log_file_name, 'a', encoding='utf-8') as log_file, \
-            open(log_file_cp_dom_name, 'a', encoding='utf-8') as log_file_cp_dom:
-        monitor_loop(log_file, log_file_cp_dom, args)
+            open(log_file_cp_dom_name, 'a', encoding='utf-8') as log_file_cp_dom, \
+            open(log_file_cp_cmd_name, 'a', encoding='utf-8') as log_file_cp_cmd:
+        monitor_loop(log_file, log_file_cp_dom, log_file_cp_cmd, args)
 
 
 if __name__ == '__main__':
