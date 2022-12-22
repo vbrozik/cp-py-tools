@@ -28,7 +28,7 @@ class AuditedRun(subprocess.CompletedProcess):
             self, start_time: datetime.datetime | None = None,
             completed_process: subprocess.CompletedProcess
             = subprocess.CompletedProcess((), 0),
-            log_output: bool = False) -> None:
+            log_output: bool = True) -> None:
         # pylint: disable=W0231  # We do not call super().__init__()
         self.__dict__ = completed_process.__dict__.copy()
         self.start_time = (
@@ -55,10 +55,11 @@ class AuditedRun(subprocess.CompletedProcess):
                 f'====== {self.start_time.astimezone().isoformat(timespec="seconds")} '
                 f'stat: {self.returncode: 3} args: {self.args}')
             print('------ stdout:')
-            print(self.stdout)
+            print(self.stdout.rstrip())
             print('------')
             if self.stderr:
                 print('------ stderr:')
-                print(self.stderr)
+                print(self.stderr.rstrip())
                 print('------')
+            print()
             sys.stdout.flush()
