@@ -84,7 +84,6 @@ def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]
             if re.match(fr'\|\s+{header_re}\s+', line):
                 if not is_separator(next(output_lines, '')):
                     return result, False
-                    # raise ValueError("domains_tool no separator below header")
                 in_body = True
             continue
         match = re.match(r'\|\s(?P<value>\S+)\s+|', line)
@@ -119,7 +118,7 @@ def str_dict(dictionary: dict) -> str:
 def check_a_records(
         dig_a_records: list[str], cp_addresses: set[str], txt_time_stamp: str,
         dig_ip_mru: LatestUnique, log_file: IO[str], log_file_cp_dom: IO[str],
-        args: argparse.Namespace) -> bool:
+        args: argparse.Namespace, run_list: list[AuditedRun]) -> bool:
     """Check A records obtained from dig.
 
     Returns: True if commands should be logged.
@@ -139,6 +138,7 @@ def check_a_records(
         log_commands = True
     for dig_ip in dig_a_records:
         cp_domains, success, command_output = cp_domains_get_domains(dig_ip)
+        run_list.append(command_output)
         if args.name not in cp_domains:
             print(
                     f'{txt_time_stamp} '
@@ -151,7 +151,7 @@ def check_a_records(
 
 
 def monitor_loop(
-        log_file: IO[str], log_file_cp_dom: IO[str], log_file_cp_cmd: IO[str],
+        log_file: IO[str], log_file_cp_dom: IO[str], log_file_cmd: IO[str],
         args: argparse.Namespace) -> NoReturn:
     """Perform the infinite DNS monitoring loop."""
     last_dig_result = DNSResult()
@@ -159,7 +159,9 @@ def monitor_loop(
     dig_ip_mru = LatestUnique()
     while True:
         log_commands = False
+        run_list: list[AuditedRun] = []     # list of executed commands
         dig_result = dig_simple(args.name)
+        run_list.append(dig_result.dig_run)
         dig_changed = last_dig_result.changed(dig_result)
         txt_time_stamp = dig_result.dig_run.start_time.astimezone().isoformat(
                 timespec="seconds")
@@ -168,6 +170,7 @@ def monitor_loop(
                     f'{txt_time_stamp} [dig]      {str_dict(dig_changed)}',
                     file=log_file)
         cp_addresses, success, command_output = cp_domains_get_addresses(args.name)
+        run_list.append(command_output)
         if not success:
             command_output.log(log_file_cp_dom)
         if cp_addresses != last_cp_addresses:
@@ -175,14 +178,16 @@ def monitor_loop(
         dig_a_records = dig_result.get_records('A')
         if dig_a_records:
             log_commands = (
-                log_commands
-                or check_a_records(
-                    dig_a_records, cp_addresses, txt_time_stamp, dig_ip_mru,
-                    log_file, log_file_cp_dom, args))
+                    log_commands
+                    or check_a_records(
+                        dig_a_records, cp_addresses, txt_time_stamp, dig_ip_mru,
+                        log_file, log_file_cp_dom, args, run_list))
         else:
             print(f'{txt_time_stamp} [dig]      no A records!', file=log_file)
         if log_commands:
-            dig_result.dig_run.log(log_file_cp_cmd)
+            for audited_run in run_list:
+                audited_run.log(log_file_cmd)
+            print(f'{"#"*80}\n', file=log_file_cmd, flush=True)
         log_file.flush()
         log_file_cp_dom.flush()
         last_dig_result = dig_result
@@ -211,8 +216,8 @@ def main(argv: Sequence[str]):
     with \
             open(log_file_name, 'a', encoding='utf-8') as log_file, \
             open(log_file_cp_dom_name, 'a', encoding='utf-8') as log_file_cp_dom, \
-            open(log_file_cp_cmd_name, 'a', encoding='utf-8') as log_file_cp_cmd:
-        monitor_loop(log_file, log_file_cp_dom, log_file_cp_cmd, args)
+            open(log_file_cp_cmd_name, 'a', encoding='utf-8') as log_file_cmd:
+        monitor_loop(log_file, log_file_cp_dom, log_file_cmd, args)
 
 
 if __name__ == '__main__':
