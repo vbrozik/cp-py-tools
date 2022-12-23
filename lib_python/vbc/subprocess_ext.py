@@ -11,9 +11,15 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import shlex
 import subprocess
 import sys
-from typing import IO, Sequence
+from typing import IO, Iterable, Sequence
+
+
+def sh_args_quote(args: Iterable[str]) -> str:
+    """Convert list of command arguments to an escaped shell command line."""
+    return ' '.join(shlex.quote(arg) for arg in args)
 
 
 class AuditedRun(subprocess.CompletedProcess):
@@ -29,7 +35,7 @@ class AuditedRun(subprocess.CompletedProcess):
             completed_process: subprocess.CompletedProcess
             = subprocess.CompletedProcess((), 0),
             log_output: bool = True) -> None:
-        # pylint: disable=W0231  # We do not call super().__init__()
+        # pylint: disable=W0231  # We copy attributes, not call super().__init__()
         self.__dict__ = completed_process.__dict__.copy()
         self.start_time = (
             datetime.datetime.now(datetime.timezone.utc) if start_time is None
@@ -52,8 +58,8 @@ class AuditedRun(subprocess.CompletedProcess):
             return
         with contextlib.redirect_stdout(file):
             print(
-                f'====== {self.start_time.astimezone().isoformat(timespec="seconds")} '
-                f'stat: {self.returncode: 3} args: {self.args}')
+                f'====== {self.start_time.astimezone().isoformat(timespec="seconds")}  '
+                f'stat: {self.returncode: 2}\n{sh_args_quote(self.args)}')
             print('------ stdout:')
             print(self.stdout.rstrip())
             print('------')
