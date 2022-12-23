@@ -20,7 +20,6 @@ import os
 import pathlib
 import re
 import string
-import subprocess
 import sys
 import time
 from typing import IO, NoReturn, Sequence
@@ -39,6 +38,7 @@ sys.path.insert(0, lib_dir)
 
 # pylint: disable=wrong-import-position
 from vbc.dns import DNSResult, dig_simple  # noqa: E402
+from vbc.subprocess_ext import AuditedRun  # noqa: E402
 
 
 class LatestUnique(list):
@@ -93,26 +93,20 @@ def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]
     return result, True
 
 
-def cp_domains_get_addresses(domain: str) -> tuple[set[str], str]:
+def cp_domains_get_addresses(domain: str) -> tuple[set[str], bool, AuditedRun]:
     """Get list of IP addresses for a domain from CP domains_tool."""
-    command_output = subprocess.run(
-            ('domains_tool', '-d', domain),
-            capture_output=True, encoding=CLI_TOOLS_ENCODING, check=False)
+    command_output = AuditedRun.run(
+            ('domains_tool', '-d', domain), encoding=CLI_TOOLS_ENCODING)
     result, success = cp_domains_parse(command_output.stdout, 'IP address')
-    return set(result), (
-            command_output.stderr + command_output.stdout
-            if not success or command_output.returncode else '')
+    return set(result), success, command_output
 
 
-def cp_domains_get_domains(address: str) -> tuple[set[str], str]:
+def cp_domains_get_domains(address: str) -> tuple[set[str], bool, AuditedRun]:
     """Get list of domains for an IP address from CP domains_tool."""
-    command_output = subprocess.run(
-            ('domains_tool', '-ip', address),
-            capture_output=True, encoding=CLI_TOOLS_ENCODING, check=False)
+    command_output = AuditedRun.run(
+            ('domains_tool', '-ip', address), encoding=CLI_TOOLS_ENCODING)
     result, success = cp_domains_parse(command_output.stdout, 'Domain name')
-    return set(result), (
-            command_output.stderr + command_output.stdout
-            if not success or command_output.returncode else '')
+    return set(result), success, command_output
 
 
 def str_dict(dictionary: dict) -> str:
@@ -144,17 +138,15 @@ def check_a_records(
                 file=log_file)
         log_commands = True
     for dig_ip in dig_a_records:
-        cp_domains, message = cp_domains_get_domains(dig_ip)
+        cp_domains, success, command_output = cp_domains_get_domains(dig_ip)
         if args.name not in cp_domains:
             print(
                     f'{txt_time_stamp} '
                     f'[miss_dom] {dig_ip} resolves to {cp_domains}',
                     file=log_file)
             log_commands = True
-        if message:
-            print(
-                    f'{txt_time_stamp} [cp-d] -ip ------\n{message}',
-                    file=log_file_cp_dom)
+        if not success:
+            command_output.log(log_file_cp_dom)
     return log_commands
 
 
@@ -175,11 +167,9 @@ def monitor_loop(
             print(
                     f'{txt_time_stamp} [dig]      {str_dict(dig_changed)}',
                     file=log_file)
-        cp_addresses, message = cp_domains_get_addresses(args.name)
-        if message:
-            print(
-                    f'{txt_time_stamp} [cp-d] -d ------\n{message}',
-                    file=log_file_cp_dom)
+        cp_addresses, success, command_output = cp_domains_get_addresses(args.name)
+        if not success:
+            command_output.log(log_file_cp_dom)
         if cp_addresses != last_cp_addresses:
             print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
         dig_a_records = dig_result.get_records('A')
