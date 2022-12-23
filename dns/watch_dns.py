@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import os
 import pathlib
@@ -60,6 +61,49 @@ class LatestUnique(list):
     def add_multi(self, value_list) -> int:
         """Add multiple values, return the biggest change."""
         return max(self.add(value) for value in value_list)
+
+
+class LogData:
+    """Logging data like open files etc."""
+    file_name: str
+    file_cp_dom_name: str
+    file_cmd_name: str
+
+    file_stack: contextlib.ExitStack
+    file: IO[str]
+    """Basic log."""
+    file_cp_dom: IO[str]
+    """Failed Check Point domains_tool log."""
+    file_cmd: IO[str]
+    """Command output log."""
+
+    txt_time_stamp: str
+    """Text timestamp for logging."""
+    run_list: list[AuditedRun]
+    """List of outputs of executed commands."""
+
+    def __init__(
+            self, file_name: str, file_cp_dom_name: str, file_cmd_name: str) -> None:
+        self.file_stack = contextlib.ExitStack()
+        self.file_name = file_name
+        self.file_cp_dom_name = file_cp_dom_name
+        self.file_cmd_name = file_cmd_name
+
+    def __enter__(self) -> LogData:
+        self.file = self.file_stack.enter_context(
+                        open(self.file_name, 'a', encoding='utf-8'))
+        self.file_cp_dom = self.file_stack.enter_context(
+                        open(self.file_cp_dom_name, 'a', encoding='utf-8'))
+        self.file_cmd = self.file_stack.enter_context(
+                        open(self.file_cmd_name, 'a', encoding='utf-8'))
+        return self
+
+    def __exit__(self, *_args) -> None:
+        self.file_stack.close()
+
+    def set_timestamp(self, date_time: datetime.datetime) -> None:
+        """Sets text timestamp for logging. Uses local time zone."""
+        self.txt_time_stamp = date_time.astimezone().isoformat(timespec="seconds")
 
 
 def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]:
@@ -116,9 +160,8 @@ def str_dict(dictionary: dict) -> str:
 
 
 def check_a_records(
-        dig_a_records: list[str], cp_addresses: set[str], txt_time_stamp: str,
-        dig_ip_mru: LatestUnique, log_file: IO[str], log_file_cp_dom: IO[str],
-        args: argparse.Namespace, run_list: list[AuditedRun]) -> bool:
+        dig_a_records: list[str], cp_addresses: set[str], dig_ip_mru: LatestUnique,
+        log_data: LogData, args: argparse.Namespace) -> bool:
     """Check A records obtained from dig.
 
     Returns: True if commands should be logged.
@@ -127,69 +170,67 @@ def check_a_records(
     log_commands = False
     if changes > 2:
         print(
-                f'{txt_time_stamp} '
+                f'{log_data.txt_time_stamp} '
                 f'[dig_{changes}]    latest IPs: {dig_ip_mru}',
-                file=log_file)
+                file=log_data.file)
     if not set(dig_a_records) <= cp_addresses:
         print(
-                f'{txt_time_stamp} '
+                f'{log_data.txt_time_stamp} '
                 f'[miss_ip]  dig: {dig_a_records}\tcp: {cp_addresses}',
-                file=log_file)
+                file=log_data.file)
         log_commands = True
     for dig_ip in dig_a_records:
         cp_domains, success, command_output = cp_domains_get_domains(dig_ip)
-        run_list.append(command_output)
+        log_data.run_list.append(command_output)
         if args.name not in cp_domains:
             print(
-                    f'{txt_time_stamp} '
+                    f'{log_data.txt_time_stamp} '
                     f'[miss_dom] {dig_ip} resolves to {cp_domains}',
-                    file=log_file)
+                    file=log_data.file)
             log_commands = True
         if not success:
-            command_output.log(log_file_cp_dom)
+            command_output.log(log_data.file_cp_dom)
     return log_commands
 
 
-def monitor_loop(
-        log_file: IO[str], log_file_cp_dom: IO[str], log_file_cmd: IO[str],
-        args: argparse.Namespace) -> NoReturn:
+def monitor_loop(log_data: LogData, args: argparse.Namespace) -> NoReturn:
     """Perform the infinite DNS monitoring loop."""
     last_dig_result = DNSResult()
     last_cp_addresses: set[str] = set()
     dig_ip_mru = LatestUnique()
     while True:
         log_commands = False
-        run_list: list[AuditedRun] = []     # list of executed commands
         dig_result = dig_simple(args.name)
-        run_list.append(dig_result.dig_run)
+        log_data.run_list = [dig_result.dig_run]
         dig_changed = last_dig_result.changed(dig_result)
-        txt_time_stamp = dig_result.dig_run.start_time.astimezone().isoformat(
-                timespec="seconds")
+        log_data.set_timestamp(dig_result.dig_run.start_time)
         if dig_changed:
             print(
-                    f'{txt_time_stamp} [dig]      {str_dict(dig_changed)}',
-                    file=log_file)
+                    f'{log_data.txt_time_stamp} [dig]      {str_dict(dig_changed)}',
+                    file=log_data.file)
         cp_addresses, success, command_output = cp_domains_get_addresses(args.name)
-        run_list.append(command_output)
+        log_data.run_list.append(command_output)
         if not success:
-            command_output.log(log_file_cp_dom)
+            command_output.log(log_data.file_cp_dom)
         if cp_addresses != last_cp_addresses:
-            print(f'{txt_time_stamp} [cp-d]     {cp_addresses}', file=log_file)
+            print(
+                    f'{log_data.txt_time_stamp} [cp-d]     {cp_addresses}',
+                    file=log_data.file)
         dig_a_records = dig_result.get_records('A')
         if dig_a_records:
             log_commands = (
-                    log_commands
-                    or check_a_records(
-                        dig_a_records, cp_addresses, txt_time_stamp, dig_ip_mru,
-                        log_file, log_file_cp_dom, args, run_list))
+                log_commands or check_a_records(
+                        dig_a_records, cp_addresses, dig_ip_mru, log_data, args))
         else:
-            print(f'{txt_time_stamp} [dig]      no A records!', file=log_file)
+            print(
+                    f'{log_data.txt_time_stamp} [dig]      no A records!',
+                    file=log_data.file)
         if log_commands:
-            for audited_run in run_list:
-                audited_run.log(log_file_cmd)
-            print(f'{"#"*80}\n', file=log_file_cmd, flush=True)
-        log_file.flush()
-        log_file_cp_dom.flush()
+            for audited_run in log_data.run_list:
+                audited_run.log(log_data.file_cmd)
+            print(f'{"#"*80}\n', file=log_data.file_cmd, flush=True)
+        log_data.file.flush()
+        log_data.file_cp_dom.flush()
         last_dig_result = dig_result
         last_cp_addresses = cp_addresses
         time.sleep(args.interval)
@@ -208,16 +249,12 @@ def main(argv: Sequence[str]):
     pathlib.Path(DEFAULT_LOG_DIR).mkdir(exist_ok=True)
     log_file_name_params = {
             'date_time': datetime.datetime.now().strftime('%Y%m%d_%H%M')}
-    log_file_name = string.Template(DEFAULT_LOG).substitute(log_file_name_params)
-    log_file_cp_dom_name = string.Template(
-            DEFAULT_LOG_CP_DOMAINS).substitute(log_file_name_params)
-    log_file_cp_cmd_name = string.Template(
-            DEFAULT_LOG_COMMANDS).substitute(log_file_name_params)
-    with \
-            open(log_file_name, 'a', encoding='utf-8') as log_file, \
-            open(log_file_cp_dom_name, 'a', encoding='utf-8') as log_file_cp_dom, \
-            open(log_file_cp_cmd_name, 'a', encoding='utf-8') as log_file_cmd:
-        monitor_loop(log_file, log_file_cp_dom, log_file_cmd, args)
+    with LogData(
+            string.Template(DEFAULT_LOG).substitute(log_file_name_params),
+            string.Template(DEFAULT_LOG_CP_DOMAINS).substitute(log_file_name_params),
+            string.Template(DEFAULT_LOG_COMMANDS).substitute(log_file_name_params)
+            ) as log_data:
+        monitor_loop(log_data, args)
 
 
 if __name__ == '__main__':
