@@ -27,7 +27,7 @@ from typing import IO, NoReturn, Sequence
 
 DEFAULT_INTERVAL = 5
 DEFAULT_LOG_DIR = '/var/log/watch_dns'
-DEFAULT_LOG = DEFAULT_LOG_DIR + '/watch_dns_${date_time}.log'
+DEFAULT_LOG = DEFAULT_LOG_DIR + '/watch_dns_base_${date_time}.log'
 DEFAULT_LOG_CP_DOMAINS = DEFAULT_LOG_DIR + '/watch_dns_cpdom_${date_time}.log'
 DEFAULT_LOG_COMMANDS = DEFAULT_LOG_DIR + '/watch_dns_cmd_${date_time}.log'
 
