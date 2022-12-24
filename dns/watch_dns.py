@@ -152,10 +152,19 @@ def cp_domains_parse(command_output: str, header: str) -> tuple[list[str], bool]
     return result, True
 
 
-def cp_domains_get_addresses(domain: str) -> tuple[set[str], bool, AuditedRun]:
+def cp_domains_get_addresses(
+        domain: str, args: argparse.Namespace) -> tuple[set[str], bool, AuditedRun]:
     """Get list of IP addresses for a domain from CP domains_tool."""
-    command_output = AuditedRun.run(
-            ('domains_tool', '-d', domain), encoding=CLI_TOOLS_ENCODING)
+    iteration = 0
+    for iteration in range(1, args.repeat_dd + 2):
+        command_output = AuditedRun.run(
+                ('domains_tool', '-d', domain), encoding=CLI_TOOLS_ENCODING)
+        if not (
+                command_output.returncode
+                and command_output.stdout.lstrip().lower().startswith('internal er')):
+            break
+        time.sleep(0.2)
+    command_output.iterations = iteration
     result, success = cp_domains_parse(command_output.stdout, 'IP address')
     return set(result), success, command_output
 
@@ -224,7 +233,8 @@ def monitor_loop(log_data: LogData, args: argparse.Namespace) -> NoReturn:
             print(
                     f'{log_data.txt_time_stamp} [dig]      {str_dict(dig_changed)}',
                     file=log_data.file)
-        cp_addresses, success, command_output = cp_domains_get_addresses(args.name)
+        cp_addresses, success, command_output = cp_domains_get_addresses(
+                args.name, args)
         log_data.run_list.append(command_output)
         if not success:
             command_output.log(log_data.file_cp_dom)
@@ -261,6 +271,9 @@ def main(argv: Sequence[str]):
     parser.add_argument(
         '-i', '--interval', type=float, default=DEFAULT_INTERVAL,
         help='the interval to check the DNS resolution')
+    parser.add_argument(
+        '-r', '--repeat-dd', type=int, default=0,
+        help='how many times repeat domains_tool -d when it fails')
     args = parser.parse_args(argv)
     pathlib.Path(DEFAULT_LOG_DIR).mkdir(exist_ok=True)
     log_file_name_params = {

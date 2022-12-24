@@ -29,6 +29,8 @@ class AuditedRun(subprocess.CompletedProcess):
     """
     start_time: datetime.datetime
     log_output: bool
+    iterations: int
+    """How many times wast the run repeated."""
 
     def __init__(
             self, start_time: datetime.datetime | None = None,
@@ -41,6 +43,7 @@ class AuditedRun(subprocess.CompletedProcess):
             datetime.datetime.now(datetime.timezone.utc) if start_time is None
             else start_time)
         self.log_output = log_output
+        self.iterations = 0
 
     @classmethod
     def run(
@@ -56,10 +59,12 @@ class AuditedRun(subprocess.CompletedProcess):
         """Write result to a log file."""
         if not self.log_output:
             return
+        iterations_txt = f'; iter: {self.iterations}' if self.iterations >= 1 else ''
         with contextlib.redirect_stdout(file):
             print(
                 f'====== {self.start_time.astimezone().isoformat(timespec="seconds")}  '
-                f'stat: {self.returncode: 2}\n{sh_args_quote(self.args)}')
+                f'stat: {self.returncode: 2}{iterations_txt}\n'
+                f'{sh_args_quote(self.args)}')
             print('------ stdout:')
             print(self.stdout.rstrip())
             print('------')
