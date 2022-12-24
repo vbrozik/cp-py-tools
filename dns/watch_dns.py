@@ -8,8 +8,24 @@ Requires:
 Tested on:
     Check Point Gaia R80.30+
 
+Installation:
+    - by pasting file content
+    mkdir -p bin/lib_python/vbc
+    cat >bin/watch_dns.py
+    cat >bin/lib_python/vbc/dns.py
+    cat >bin/lib_python/vbc/subprocess_ext.py
+
 Usage:
     nohup python3 watch_dns.py watched.url &
+    cd /var/log/watch_dns/
+    less -S +F $(printf %s\\n watch_dns_base*.log | tail -1)
+    less -S +F $(printf %s\\n watch_dns_cmd*.log | tail -1)
+    less -S +F $(printf %s\\n watch_dns_cpdom*.log | tail -1)
+
+Notes:
+    On R80.30 domains_tool -d sometimes fail with status code 1 and
+    the following message on stdout (with typo "erorr"):
+    Internal erorr, for more information use DEBUG mode
 """
 
 from __future__ import annotations
