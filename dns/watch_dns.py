@@ -43,9 +43,15 @@ from typing import IO, NoReturn, Sequence
 
 DEFAULT_INTERVAL = 5
 DEFAULT_LOG_DIR = '/var/log/watch_dns'
+"""Directory where to put logs. Will be created if it does not exist."""
 DEFAULT_LOG = DEFAULT_LOG_DIR + '/watch_dns_base_${date_time}.log'
+"""Basic logs - dig and A record changes, missing IP addresses in CP's domains_tool."""
 DEFAULT_LOG_CP_DOMAINS = DEFAULT_LOG_DIR + '/watch_dns_cpdom_${date_time}.log'
+"""Output of domains_tool when parsing fails."""
 DEFAULT_LOG_COMMANDS = DEFAULT_LOG_DIR + '/watch_dns_cmd_${date_time}.log'
+"""Output of commands when IP addresses are missing in CP's domains_tool."""
+CP_DOMAINS_REPEAT_INTERVAL = 0.5    # repeat interval for domains_tool attempts
+"""Repeat interval for attempts when domains_tool fails with an internal error."""
 
 CLI_TOOLS_ENCODING = sys.getdefaultencoding()   # probably wrong, TODO test on Windows
 NULL_TIME = datetime.datetime(1, 1, 1)
@@ -163,7 +169,7 @@ def cp_domains_get_addresses(
                 command_output.returncode
                 and command_output.stdout.lstrip().lower().startswith('internal er')):
             break
-        time.sleep(0.2)
+        time.sleep(CP_DOMAINS_REPEAT_INTERVAL)
     command_output.iterations = iteration
     result, success = cp_domains_parse(command_output.stdout, 'IP address')
     return set(result), success, command_output
@@ -236,7 +242,7 @@ def monitor_loop(log_data: LogData, args: argparse.Namespace) -> NoReturn:
         cp_addresses, success, command_output = cp_domains_get_addresses(
                 args.name, args)
         log_data.run_list.append(command_output)
-        if not success:
+        if not success:     # output parsing failure
             command_output.log(log_data.file_cp_dom)
         if cp_addresses != last_cp_addresses:
             print(
