@@ -244,7 +244,14 @@ def monitor_loop(log_data: LogData, args: argparse.Namespace) -> NoReturn:
         log_data.run_list.append(command_output)
         if not success:     # output parsing failure
             command_output.log(log_data.file_cp_dom)
-        if cp_addresses != last_cp_addresses:
+        if not cp_addresses and command_output.returncode:
+            print(
+                    f'{log_data.txt_time_stamp} [cp-d]     {cp_addresses}; '
+                    f'fail_status: {command_output.returncode}; '
+                    f'attempts: {command_output.iterations}; '
+                    f'output: {command_output.get_first_line()}',
+                    file=log_data.file)
+        elif cp_addresses != last_cp_addresses:
             print(
                     f'{log_data.txt_time_stamp} [cp-d]     {cp_addresses}',
                     file=log_data.file)

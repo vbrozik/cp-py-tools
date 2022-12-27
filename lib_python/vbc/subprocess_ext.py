@@ -55,6 +55,11 @@ class AuditedRun(subprocess.CompletedProcess):
                 args, capture_output=capture_output, check=check, encoding=encoding)
         return cls(start_time, completed_process)
 
+    def get_first_line(self) -> str:
+        """Get first line of stdout or stderr (if stdout empty)."""
+        lines = f'{self.stdout.strip()}\n{self.stderr.strip()}'.splitlines()
+        return lines[0] if lines else ''
+
     def log(self, file: IO[str]) -> None:
         """Write result to a log file."""
         if not self.log_output:
