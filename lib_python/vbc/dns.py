@@ -9,12 +9,13 @@ Tested on:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import re
 import sys
+from dataclasses import dataclass, field
 from typing import Any, List, Sequence, cast
 
 from vbc.subprocess_ext import AuditedRun
+
 
 CLI_TOOLS_ENCODING = sys.getdefaultencoding()   # probably wrong, TODO test on Windows
 

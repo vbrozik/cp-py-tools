@@ -24,7 +24,7 @@ Usage:
 
 Notes:
     On R80.30 domains_tool -d sometimes fail with status code 1 and
-    the following message on stdout (with typo "erorr"):
+    the following message on stdout (including the typo "erorr"):
     Internal erorr, for more information use DEBUG mode
 """
 
@@ -40,6 +40,7 @@ import string
 import sys
 import time
 from typing import IO, NoReturn, Sequence
+
 
 DEFAULT_INTERVAL = 5
 DEFAULT_LOG_DIR = '/var/log/watch_dns'
@@ -162,6 +163,7 @@ def cp_domains_get_addresses(
         domain: str, args: argparse.Namespace) -> tuple[set[str], bool, AuditedRun]:
     """Get list of IP addresses for a domain from CP domains_tool."""
     iteration = 0
+    command_output: AuditedRun | None = None    # needed for Pylance
     for iteration in range(1, args.repeat_dd + 2):
         command_output = AuditedRun.run(
                 ('domains_tool', '-d', domain), encoding=CLI_TOOLS_ENCODING)
@@ -170,6 +172,7 @@ def cp_domains_get_addresses(
                 and command_output.stdout.lstrip().lower().startswith('internal er')):
             break
         time.sleep(CP_DOMAINS_REPEAT_INTERVAL)
+    assert command_output is not None
     command_output.iterations = iteration
     result, success = cp_domains_parse(command_output.stdout, 'IP address')
     return set(result), success, command_output
