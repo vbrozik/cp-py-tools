@@ -1,0 +1,49 @@
+# This repository does not contain a package so this pyproject.toml is only
+# used for defining parameters for the development tools.
+
+[tool.pytest.ini_options]
+minversion = "7.1"
+testpaths = [
+    "tests",
+]
+pythonpath = [
+    "src",
+]
+
+[tool.mypy]
+python_version = "3.7"
+
+[tool.pylint.messages_control]
+disable = [
+    "unnecessary-pass",
+    "unnecessary-ellipsis",
+    "invalid-name",
+    # Allow using elif where if can be used:
+    "no-else-return",
+    "no-else-raise",
+    "no-else-break",
+    "no-else-continue",
+    # Do not normally warn about TODOs:
+    "fixme",
+    ]
+
+[tool.pylint.format]
+max-line-length = 100
+# Allow list of long URLs inside a docstring:
+ignore-long-lines = "^\\s*([#*] )?<?https?://\\S+>?$"
+
+[tool.pylint.basic]
+# const-naming-style = "any"
+
+[tool.pylint.master]
+init-hook = 'import sys; sys.path.extend(("lib_python", "src"))'
+
+[tool.isort]
+multi_line_output = 4
+lines_after_imports = 2
+line_length = 100
+# indent = "        "       # double indent continuation lines
+
+[tool.pydocstyle]
+convention = "google"
+add-ignore = [ "D105", "D107" ]
