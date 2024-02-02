@@ -142,7 +142,7 @@ class CPUSpikeInfo(SpikeInfo):
 
     def get_sub_type_str(self) -> str:
         """Return a string with the sub-type of the spike."""
-        return f"cpu_{self.cpu_core}"
+        return f"{self.cpu_core:2d}"
 
 
 @dataclass(frozen=True)
@@ -155,7 +155,7 @@ class ThreadSpikeInfo(SpikeInfo):
 
     def get_sub_type_str(self) -> str:
         """Return a string with the sub-type of the spike."""
-        return f"thread_{self.thread_name}"
+        return f"{self.thread_name}"
 
 
 @functools.total_ordering
@@ -180,7 +180,10 @@ class SpikeChangeEvent:
         return self.time == other.time
 
     def __copy__(self) -> "SpikeChangeEvent":
-        """Return a copy of the event."""
+        """Return a copy of the event.
+
+        Sets are copied so that they can be modified independently.
+        """
         return SpikeChangeEvent(
                 self.time, self.spikes_started.copy(), self.spikes_ended.copy(),
                 self.spikes_active.copy())
@@ -206,9 +209,6 @@ class SpikeChangeEvent:
             cls, spike: SpikeInfo, previous_event: "SpikeChangeEvent | None" = None
             ) -> "SpikeChangeEvent":
         """Create a SpikeChangeEvent object from a spike start."""
-        if previous_event is not None:
-            assert cls._do_spike_and_event_types_match(
-                    spike, previous_event), "Spike and event types do not match."
         if previous_event is None:
             if isinstance(spike, CPUSpikeInfo):
                 new_event = CPUSpikeChangeEvent(
@@ -221,6 +221,8 @@ class SpikeChangeEvent:
             else:
                 assert False, "Unknown spike type."
         else:
+            assert cls._do_spike_and_event_types_match(
+                    spike, previous_event), "Spike and event types do not match."
             new_event = previous_event.clone(spike.start_time)
             new_event.add_start_event(spike)
         return new_event
@@ -232,7 +234,7 @@ class SpikeChangeEvent:
         assert cls._do_spike_and_event_types_match(spike, previous_event), (
                 f"Spike and event types do not match: {type(spike)}, {type(previous_event)}")
         new_event = previous_event.clone(spike.end_time)
-        new_event.add_end_event(spike, remove_active_spike=True)
+        new_event.add_end_event(spike)
         return new_event
 
     def add_active_spike(self, spike: SpikeInfo) -> None:
@@ -251,7 +253,7 @@ class SpikeChangeEvent:
     def add_end_event(self, spike: SpikeInfo, remove_active_spike: bool = False) -> None:
         """Add an spike end event to the event."""
         self.spikes_ended.add(spike)
-        if remove_active_spike:
+        if remove_active_spike:         # Note: Probably not needed.
             self.remove_active_spike(spike)
 
 
@@ -374,7 +376,7 @@ class SpikeChangeEvents:
         else:
             assert False, "Spike end time is later than the time of the event."
         for update_index in range(index_of_start_event + 1, index):
-            self.events[update_index].remove_active_spike(spike)
+            self.events[update_index].add_active_spike(spike)
 
     def add_event(self, spike: SpikeInfo) -> None:
         """Add an event to the list, maintaining sorted order."""
@@ -409,6 +411,10 @@ class SpikeStats:
     """Provide statistics about spikes."""
     spikes: list[SpikeInfo]
     """List of spikes."""
+    kinds: Sequence[str]
+    """Kinds of statistics to compute and show."""
+    top_counts_limit: int
+    """Limit the number of top counts to show."""
     spike_type_occurrence_counters: defaultdict[SpikeType, Counter[str]]
     """Counters of spike types by number of occurrences."""
     spike_type_cpu_seconds_counters: defaultdict[SpikeType, Counter[str]]
@@ -416,10 +422,6 @@ class SpikeStats:
 
     The Counter objects contains float values, while in typeshed it is hardcoded to int.
     """
-    kinds: Sequence[str]
-    """Kinds of statistics to compute and show."""
-    top_counts_limit: int
-    """Limit the number of top counts to show."""
 
     def reset_counters(self) -> None:
         """Reset counters."""
@@ -526,8 +528,7 @@ def main(args: Sequence[str]) -> None:
         spike_stats.update_counters()
         spike_stats.print_spike_stats()
     spikes_in_time = SpikesInTime(spikes)
-    # TODO: Fix the update() method.
-    # spikes_in_time.update()
+    spikes_in_time.update()
 
 
 if __name__ == "__main__":
