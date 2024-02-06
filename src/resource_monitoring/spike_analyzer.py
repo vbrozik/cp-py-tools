@@ -2,20 +2,19 @@
 
 """Analyze data from Check Point spike detective."""
 
-from abc import ABC, abstractmethod
 import argparse
 import bisect
-from collections import Counter, defaultdict
 import contextlib
-import copy
 import datetime
 import enum
 import functools
-from pathlib import Path
 import re
-from dataclasses import dataclass, field
 import sys
-from typing import ClassVar, Sequence
+from abc import ABC, abstractmethod
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import ClassVar, Iterator, NamedTuple, Sequence, Type
 
 
 LOCAL_TIME_ZONE = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
@@ -73,7 +72,7 @@ class SpikeInfo(ABC):
     """Time the spike started."""
     end_time: datetime.datetime
     """Time the spike ended."""
-    duration: int
+    duration: datetime.timedelta
     """Duration of the spike in seconds."""
     initial_cpu_usage: int
     """Initial CPU usage when the spike started."""
@@ -104,22 +103,21 @@ class SpikeInfo(ABC):
                 "spike_type": SpikeType.from_str(data["spike_type"]),
                 "start_time": datetime.datetime.strptime(
                         data["start_time"], "%d/%m/%y %H:%M:%S").replace(tzinfo=cls.time_zone),
-                "duration": int(data["duration"]),
+                "duration": datetime.timedelta(seconds=int(data["duration"])),
                 "initial_cpu_usage": int(data["initial_cpu_usage"]),
                 "average_cpu_usage": int(data["average_cpu_usage"]),
                 "perf_taken": bool(int(data["perf_taken"])),
                 "original_log": log_line,
                 }
-        attributes["end_time"] = attributes["start_time"] + datetime.timedelta(
-                seconds=attributes["duration"])
+        attributes["end_time"] = attributes["start_time"] + attributes["duration"]
         if attributes["spike_type"] == SpikeType.CPU:
             attributes["cpu_core"] = int(data["cpu_core"])
             attributes["top_consumer"] = data["top_consumer"]
-            return CPUSpikeInfo(**attributes)
+            return SpikeInfoCPU(**attributes)
         elif attributes["spike_type"] == SpikeType.THREAD:
             attributes["thread_id"] = int(data["thread_id"])
             attributes["thread_name"] = data["thread_name"]
-            return ThreadSpikeInfo(**attributes)
+            return SpikeInfoThread(**attributes)
         raise ValueError("Unknown spike type.")
 
     @abstractmethod
@@ -129,11 +127,11 @@ class SpikeInfo(ABC):
 
     def get_cpu_seconds(self) -> float:
         """Return CPU seconds used by the spike."""
-        return self.duration * self.average_cpu_usage / 100
+        return self.duration.seconds * self.average_cpu_usage / 100
 
 
 @dataclass(frozen=True)
-class CPUSpikeInfo(SpikeInfo):
+class SpikeInfoCPU(SpikeInfo):
     """Information about a CPU spike."""
     cpu_core: int
     """CPU core number that spiked if the type is CPU."""
@@ -146,7 +144,7 @@ class CPUSpikeInfo(SpikeInfo):
 
 
 @dataclass(frozen=True)
-class ThreadSpikeInfo(SpikeInfo):
+class SpikeInfoThread(SpikeInfo):
     """Information about a thread spike."""
     thread_id: int
     """Thread ID that spiked if the type is thread."""
@@ -161,15 +159,20 @@ class ThreadSpikeInfo(SpikeInfo):
 @functools.total_ordering
 @dataclass
 class SpikeChangeEvent:
-    """Event when spikes change their state (a spike starts or ends)."""
+    """Event when spikes change their state (a spike starts or ends).
+
+    These events are used to describe the state of spikes between two changes.
+    """
     time: datetime.datetime
     """Time of the event."""
-    spikes_started: set[SpikeInfo]
+    spikes_started: set[SpikeInfo] = field(default_factory=set)
     """List of spikes that started at the time of the event."""
-    spikes_ended: set[SpikeInfo]
+    spikes_ended: set[SpikeInfo] = field(default_factory=set)
     """List of spikes that ended at the time of the event."""
-    spikes_active: set[SpikeInfo]
+    spikes_active: set[SpikeInfo] = field(default_factory=set)
     """List of spikes that were active at least from the time of the event till the next event."""
+    cpu_usage: int = 0
+    """CPU usage of CPUs or threads at the time of the event as a sum of average CPU usages."""
 
     def __lt__(self, other: "SpikeChangeEvent") -> bool:
         """Return whether the event is earlier than another event."""
@@ -188,131 +191,139 @@ class SpikeChangeEvent:
                 self.time, self.spikes_started.copy(), self.spikes_ended.copy(),
                 self.spikes_active.copy())
 
-    @staticmethod
-    def _do_spike_and_event_types_match(spike: SpikeInfo, event: "SpikeChangeEvent") -> bool:
-        """Provide spike and event type match for assertions."""
-        return (
-            (isinstance(spike, CPUSpikeInfo) == isinstance(event, CPUSpikeChangeEvent)) and
-            (isinstance(spike, ThreadSpikeInfo) == isinstance(event, ThreadSpikeChangeEvent)) and
-            (isinstance(spike, CPUSpikeInfo) != isinstance(spike, ThreadSpikeInfo)))
-
-    def clone(self, new_time: datetime.datetime) -> "SpikeChangeEvent":
-        """Return a copy of the event with a new time and start/stop events cleared."""
-        new_event = copy.copy(self)
-        new_event.time = new_time
-        new_event.spikes_started = set()
-        new_event.spikes_ended = set()
-        return new_event
-
-    @classmethod
-    def from_spike_start(
-            cls, spike: SpikeInfo, previous_event: "SpikeChangeEvent | None" = None
-            ) -> "SpikeChangeEvent":
-        """Create a SpikeChangeEvent object from a spike start."""
-        if previous_event is None:
-            if isinstance(spike, CPUSpikeInfo):
-                new_event = CPUSpikeChangeEvent(
-                        spike.start_time, {spike}, set(), {spike}, {spike.cpu_core},
-                        spike.average_cpu_usage)
-            elif isinstance(spike, ThreadSpikeInfo):
-                new_event = ThreadSpikeChangeEvent(
-                        spike.start_time, {spike}, set(), {spike}, {spike.thread_id},
-                        spike.average_cpu_usage)
-            else:
-                assert False, "Unknown spike type."
-        else:
-            assert cls._do_spike_and_event_types_match(
-                    spike, previous_event), "Spike and event types do not match."
-            new_event = previous_event.clone(spike.start_time)
-            new_event.add_start_event(spike)
-        return new_event
-
-    @classmethod
-    def from_spike_end(
-            cls, spike: SpikeInfo, previous_event: "SpikeChangeEvent") -> "SpikeChangeEvent":
-        """Create a SpikeChangeEvent object from a spike end."""
-        assert cls._do_spike_and_event_types_match(spike, previous_event), (
-                f"Spike and event types do not match: {type(spike)}, {type(previous_event)}")
-        new_event = previous_event.clone(spike.end_time)
-        new_event.add_end_event(spike)
-        return new_event
-
-    def add_active_spike(self, spike: SpikeInfo) -> None:
-        """Add an active spike to the list."""
-        self.spikes_active.add(spike)
-
-    def remove_active_spike(self, spike: SpikeInfo) -> None:
-        """Remove an active spike from the list."""
-        self.spikes_active.remove(spike)
-
     def add_start_event(self, spike: SpikeInfo) -> None:
         """Add a start event to the list."""
         self.spikes_started.add(spike)
-        self.add_active_spike(spike)
 
-    def add_end_event(self, spike: SpikeInfo, remove_active_spike: bool = False) -> None:
+    def add_end_event(self, spike: SpikeInfo) -> None:
         """Add an spike end event to the event."""
         self.spikes_ended.add(spike)
-        if remove_active_spike:         # Note: Probably not needed.
-            self.remove_active_spike(spike)
+
+    def update_sums(self) -> None:
+        """Update the sums of spikes."""
+        self.cpu_usage = sum(spike.average_cpu_usage for spike in self.spikes_active)
 
 
 @dataclass
-class CPUSpikeChangeEvent(SpikeChangeEvent):
+class SpikeChangeEventCPU(SpikeChangeEvent):
     """Event when CPU spikes change their state (a spike starts or ends)."""
-    cpus_spiked: set[int]
+    cpus_spiked: set[int] = field(default_factory=set)
     """List of CPU cores that spiked at the time of the event."""
-    cpu_usage: int
-    """CPU usage at the time of the event as a sum of average CPU usages."""
 
-    def add_active_spike(self, spike: CPUSpikeInfo) -> None:
-        """Add active spike."""
-        self.cpus_spiked.add(spike.cpu_core)
-        self.cpu_usage += spike.average_cpu_usage
-        return super().add_active_spike(spike)
-
-    def remove_active_spike(self, spike: CPUSpikeInfo) -> None:
-        """Remove active spike."""
-        self.cpus_spiked.remove(spike.cpu_core)
-        self.cpu_usage -= spike.average_cpu_usage
-        return super().remove_active_spike(spike)
-
-    def __copy__(self) -> "CPUSpikeChangeEvent":
+    def __copy__(self) -> "SpikeChangeEventCPU":
         # Note: Is there a way to use super() here?
-        return CPUSpikeChangeEvent(
+        return SpikeChangeEventCPU(
                 self.time, self.spikes_started.copy(), self.spikes_ended.copy(),
-                self.spikes_active.copy(), self.cpus_spiked.copy(), self.cpu_usage)
+                self.spikes_active.copy(), self.cpu_usage, self.cpus_spiked.copy())  # type: ignore
+        # TODO: Resolve variance of self.spikes_active
+
+    def update_sums(self) -> None:
+        """Update the sums of spikes."""
+        self.spikes_active: set[SpikeInfoCPU]
+        self.cpus_spiked = {spike.cpu_core for spike in self.spikes_active}
+        return super().update_sums()
 
 
 @dataclass
-class ThreadSpikeChangeEvent(SpikeChangeEvent):
+class SpikeChangeEventThread(SpikeChangeEvent):
     """Event when thread spikes change their state (a spike starts or ends)."""
-    threads_spiked: set[int]
+    threads_spiked: set[int] = field(default_factory=set)
     """List of thread IDs that spiked at the time of the event."""
-    thread_cpu_usage: int
-    """CPU usage at the time of the event as a sum of average CPU usages of threads."""
 
-    def add_active_spike(self, spike: ThreadSpikeInfo) -> None:
-        """Add active spike."""
-        self.threads_spiked.add(spike.thread_id)
-        self.thread_cpu_usage += spike.average_cpu_usage
-        return super().add_active_spike(spike)
-
-    def remove_active_spike(self, spike: ThreadSpikeInfo) -> None:
-        """Remove active spike."""
-        self.threads_spiked.remove(spike.thread_id)
-        self.thread_cpu_usage -= spike.average_cpu_usage
-        return super().remove_active_spike(spike)
-
-    def __copy__(self) -> "ThreadSpikeChangeEvent":
-        return ThreadSpikeChangeEvent(
+    def __copy__(self) -> "SpikeChangeEventThread":
+        return SpikeChangeEventThread(
                 self.time, self.spikes_started.copy(), self.spikes_ended.copy(),
-                self.spikes_active.copy(), self.threads_spiked.copy(), self.thread_cpu_usage)
+                self.spikes_active.copy(), self.cpu_usage,      # type: ignore
+                self.threads_spiked.copy())
+
+    def update_sums(self) -> None:
+        """Update the sums of spikes."""
+        self.spikes_active: set[SpikeInfoThread]
+        self.threads_spiked = {spike.thread_id for spike in self.spikes_active}
+        return super().update_sums()
+
+
+def round_time(
+        time: datetime.datetime, time_step: datetime.timedelta, up: bool = False,
+        ) -> datetime.datetime:
+    """Round time to the nearest time step. Zero time step is at midnight."""
+    midnight_base = datetime.datetime(time.year, time.month, time.day, tzinfo=time.tzinfo)
+    time_diff = time - midnight_base
+    time_rounding_diff = - (time_diff % time_step)
+    if up:
+        time_rounding_diff += time_step
+    return time + time_rounding_diff
+
+
+def get_time_interval_overlap_fraction(
+        base_interval: Sequence[datetime.datetime], other_interval: Sequence[datetime.datetime]
+        ) -> float:
+    """Return the overlap of two time intervals as fraction of the first interval."""
+    start = max(base_interval[0], other_interval[0])
+    end = min(base_interval[1], other_interval[1])
+    overlap = max(datetime.timedelta(), (end - start))
+    return overlap / (base_interval[1] - base_interval[0])
+
+
+class SpikeChangeEventPart(NamedTuple):
+    """Part of a spike change event defined as a fraction of the event."""
+    spike_event: SpikeChangeEvent
+    """Spike change event describing state of spikes between two changes."""
+    overlap_fraction: float
+    """Fraction of the event which makes this part."""
+
+
+@dataclass
+class SpikesState:
+    """State of spikes during a given time period independent of spike change events.
+
+    The state can be stored either for a CPU spike or a thread spike.
+    """
+    time: datetime.datetime
+    """Start time of the period the state is for."""
+    length: datetime.timedelta
+    """Length of the period in seconds the state is for."""
+    spike_event_parts: list[SpikeChangeEventPart]
+    """Events when spikes change their state during the time period."""
+    max_concurrent_spikes: int = field(init=False)
+    """Maximum number of concurrent spikes."""
+    max_cpu_usage_from_spike_average: int = field(init=False)
+    """Maximum CPU usage from average CPU usage of the spikes."""
+    cpu_seconds_usage: float = field(init=False)
+    """Total CPU seconds used by the spikes."""
+    max_spike_duration: datetime.timedelta = field(init=False)
+    """Maximum length of a spike (possibly extending from the time period)."""
+
+    def __post_init__(self) -> None:
+        """Compute the statistics fields."""
+        self.max_concurrent_spikes = max(
+                len(part.spike_event.spikes_active) for part in self.spike_event_parts)
+        self.max_cpu_usage_from_spike_average = max((
+                spike.average_cpu_usage
+                for event, _fraction in self.spike_event_parts
+                for spike in event.spikes_active), default=0)
+        self.cpu_seconds_usage = sum(
+                spike.get_cpu_seconds() * fraction
+                for event, fraction in self.spike_event_parts
+                for spike in event.spikes_active)
+        self.max_spike_duration = max((
+                spike.duration
+                for event, _fraction in self.spike_event_parts
+                for spike in event.spikes_active), default=datetime.timedelta())
+
+    def __str__(self) -> str:
+        """Return a string representation of the state."""
+        return f"{self.time} {self.max_concurrent_spikes:2d} {self.cpu_seconds_usage:8.2f} "
 
 
 @dataclass
 class SpikeChangeEvents:
-    """Events when spikes change their state (a spike starts or ends)."""
+    """Events when spikes change their state (a spike starts or ends).
+
+    The events are sorted by time. The structure should contain only event of a single type.
+    """
+    SpikeType: Type[SpikeInfo]
+    """Type of spikes the events are for."""
     events: list[SpikeChangeEvent] = field(default_factory=list)
     """List of events sorted by time."""
     _event_indices: list[datetime.datetime] = field(default_factory=list)
@@ -320,6 +331,16 @@ class SpikeChangeEvents:
 
     Every events[i] has its events[i].time at event_indices[i].
     """
+    SpikeChangeEventType: Type[SpikeChangeEvent] = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Set the type of SpikeChangeEvent to use."""
+        if self.SpikeType == SpikeInfoCPU:
+            self.SpikeChangeEventType = SpikeChangeEventCPU
+        elif self.SpikeType == SpikeInfoThread:
+            self.SpikeChangeEventType = SpikeChangeEventThread
+        else:
+            assert False, "Unknown spike type."
 
     def _insert_event(self, index: int, event: SpikeChangeEvent) -> None:
         """Insert an event to the list."""
@@ -329,9 +350,6 @@ class SpikeChangeEvents:
     def _add_start_event_at_index(self, index: int, spike: SpikeInfo) -> None:
         """Add a start event to the list at a given index.
 
-        The following existing events are not updated in this method. They will be updated in
-        _add_end_event_at_index().
-
         Args:
             index:
                 a) The spike start time is the same as the time of an existing event:
@@ -339,13 +357,12 @@ class SpikeChangeEvents:
                 b) Other cases: index of new event to insert
             spike: Spike that started at the time of the event.
         """
-        assert index >= 0, "Index is negative."
+        assert index >= 0, "Cannot add event at negative index."
         insert_at_end = index >= len(self.events)
         if not insert_at_end and spike.start_time == self.events[index].time:
-            self.events[index].add_start_event(spike)
+            self.events[index].add_start_event(spike)       # Extend the existing event.
         elif insert_at_end or spike.start_time < self.events[index].time:
-            previous_event = None if index <= 0 else self.events[index - 1]
-            event = SpikeChangeEvent.from_spike_start(spike, previous_event)
+            event = self.SpikeChangeEventType(spike.start_time, {spike})
             self._insert_event(index, event)
         else:
             assert False, "Spike start time is later than the time of the event."
@@ -353,8 +370,6 @@ class SpikeChangeEvents:
     def _add_end_event_at_index(
             self, index: int, index_of_start_event: int, spike: SpikeInfo) -> None:
         """Add an end event to the list at a given index.
-
-        The events after index_of_start_event till this new event are updated.
 
         Args:
             index:
@@ -364,26 +379,99 @@ class SpikeChangeEvents:
             index_of_start_event: Index of the start event of the spike.
             spike: Spike that ended at the time of the event.
         """
-        assert index >= 0 and index_of_start_event >= 0, "Index is negative."
+        assert index >= 0 and index_of_start_event >= 0, "Cannot add event at negative index."
         assert index_of_start_event < index, "Start event is not before the end event."
         insert_at_end = index >= len(self.events)
         if not insert_at_end and spike.end_time == self.events[index].time:
-            self.events[index].add_end_event(spike, remove_active_spike=False)
+            self.events[index].add_end_event(spike)
         elif insert_at_end or spike.end_time < self.events[index].time:
-            previous_event = self.events[index - 1]
-            event = SpikeChangeEvent.from_spike_end(spike, previous_event)
+            event = self.SpikeChangeEventType(spike.end_time, set(), {spike})
             self._insert_event(index, event)
         else:
             assert False, "Spike end time is later than the time of the event."
-        for update_index in range(index_of_start_event + 1, index):
-            self.events[update_index].add_active_spike(spike)
 
     def add_event(self, spike: SpikeInfo) -> None:
-        """Add an event to the list, maintaining sorted order."""
+        """Add an event to the list, maintaining sorted order.
+
+        This method does not set active spikes in the events.
+        """
+        assert isinstance(spike, self.SpikeType), "Spike type does not match the event type."
+        assert spike.start_time < spike.end_time, "Spike start time is not before the end time."
         start_index = bisect.bisect_left(self._event_indices, spike.start_time)
         self._add_start_event_at_index(start_index, spike)
-        end_index = bisect.bisect_left(self._event_indices, spike.end_time)
+        end_index = bisect.bisect_left(self._event_indices, spike.end_time, start_index)
         self._add_end_event_at_index(end_index, start_index, spike)
+
+    def update_active_spikes(self) -> None:
+        """Update active spikes in the events."""
+        active_spikes: set[SpikeInfo] = set()
+        for event in self.events:
+            assert not event.spikes_started & event.spikes_ended, (
+                    "Started and ended spikes overlap.")
+            assert not event.spikes_started & active_spikes, "Started spike already active."
+            assert not event.spikes_ended - active_spikes, "Ended inactive spike."
+            active_spikes |= event.spikes_started
+            active_spikes -= event.spikes_ended
+            event.spikes_active = set(active_spikes)
+            event.update_sums()
+        assert not active_spikes, "There are active spikes after the last event."
+
+    def iterate_in_time_steps(
+            self, time_step: datetime.timedelta, round_start_time: bool = True
+            ) -> Iterator[SpikesState]:
+        """Iterate over events in time steps yielding events in each time step.
+
+        Events which are in the time step only partially has the float value indicating the
+        fraction of the time step they are in (others are naturally 1.0).
+        """
+        if not self.events:
+            return
+        if len(self.events) == 1:
+            assert False, "SpikeChangeEvents has only one event but there must be at least two."
+        start_time = self.events[0].time
+        if round_start_time:
+            start_time = round_time(start_time, time_step)
+        assert not self.events[-1].spikes_active, "Last event must end all spikes but does not."
+        current_interval = [start_time, start_time + time_step]
+        event_iterator = iter(self.events)
+        events_in_interval: list[SpikeChangeEvent] = []
+        # FIFO of events being processed. Last item is outside the interval.
+        processing_phase = 0
+        while True:
+            events_to_yield: list[SpikeChangeEventPart] = []
+            for event in event_iterator:
+                events_in_interval.append(event)
+                while len(events_in_interval) > 1:  # Do we need loop or just a single check?
+                    overlap_fraction = get_time_interval_overlap_fraction(
+                        current_interval, [events_in_interval[0].time, events_in_interval[1].time])
+                    if overlap_fraction > 0:
+                        events_to_yield.append(
+                                SpikeChangeEventPart(events_in_interval[0], overlap_fraction))
+                    events_in_interval.pop(0)
+                if event.time >= current_interval[1]:   # We have crossed the end of the interval.
+                    break
+            else:
+                event_iterator = iter((
+                        SpikeChangeEvent(current_interval[1], set(), set(), set()),))
+                processing_phase += 1
+            if events_to_yield:     # Is the condition needed?
+                yield SpikesState(current_interval[0], time_step, events_to_yield)
+            if processing_phase >= 2:
+                break
+            current_interval = [current_interval[1], current_interval[1] + time_step]
+
+
+class SpikesStateInTime:
+    """Store and process information about spikes evolving in time."""
+    spikes: list[SpikeInfo]
+    """List of spikes."""
+    spike_change_events_cpu: SpikeChangeEvents
+    """Events when CPU spikes change their state and the state in between."""
+    spike_change_events_thread: SpikeChangeEvents
+    """Events when thread spikes change their state and the state in between."""
+
+    def __init__(self, spikes: list[SpikeInfo]) -> None:
+        """Initialize the class."""
 
 
 def parse_log_file(log_file: str | Path) -> list[SpikeInfo]:
@@ -486,22 +574,45 @@ class SpikesInTime:
     """Events when CPU spikes change their state and the state in between."""
     spike_change_events_thread: SpikeChangeEvents
     """Events when thread spikes change their state and the state in between."""
+    spikes_in_time_cpu: list[SpikesState]
+    """State of CPU spikes in time."""
+    spikes_in_time_thread: list[SpikesState]
+    """State of thread spikes in time."""
+    time_step: ClassVar[datetime.timedelta] = datetime.timedelta(minutes=10)
+    """Time step to use for processing the spikes to spikes_in_time_* lists."""
 
     def __init__(self, spikes: list[SpikeInfo]) -> None:
         """Initialize the class."""
         self.spikes = spikes
-        self.spike_change_events_cpu = SpikeChangeEvents()
-        self.spike_change_events_thread = SpikeChangeEvents()
+        self.spike_change_events_cpu = SpikeChangeEvents(SpikeInfoCPU)
+        self.spike_change_events_thread = SpikeChangeEvents(SpikeInfoThread)
+        self.spikes_in_time_cpu = []
+        self.spikes_in_time_thread = []
 
     def update(self) -> None:
         """Update spike change events."""
         for spike in self.spikes:
             if spike.spike_type == SpikeType.CPU:
                 self.spike_change_events_cpu.add_event(spike)
+                self.spike_change_events_cpu.update_active_spikes()
             elif spike.spike_type == SpikeType.THREAD:
                 self.spike_change_events_thread.add_event(spike)
+                self.spike_change_events_thread.update_active_spikes()
             else:
                 assert False, "Unknown spike type."
+        self.spikes_in_time_cpu = list(
+                self.spike_change_events_cpu.iterate_in_time_steps(self.time_step))
+        self.spikes_in_time_thread = list(
+                self.spike_change_events_thread.iterate_in_time_steps(self.time_step))
+
+    def print_spikes_in_time(self) -> None:
+        """Print spikes in time."""
+        print("CPU Spikes:")
+        for spikes_in_time in self.spikes_in_time_cpu:
+            print(spikes_in_time)
+        print("Thread Spikes:")
+        for spikes_in_time in self.spikes_in_time_thread:
+            print(spikes_in_time)
 
 
 def parse_cli_args(args: Sequence[str]) -> argparse.Namespace:
@@ -529,6 +640,7 @@ def main(args: Sequence[str]) -> None:
         spike_stats.print_spike_stats()
     spikes_in_time = SpikesInTime(spikes)
     spikes_in_time.update()
+    spikes_in_time.print_spikes_in_time()
 
 
 if __name__ == "__main__":
