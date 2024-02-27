@@ -201,13 +201,14 @@ class SFTPSessionCurl:
             raise RuntimeError(f"curl returned no output for {url}")
         return json.loads(output)["rows"]
 
-    def put(self, local_file: str, remote_path: str) -> None:
-        """Put file."""
+    def put(self, local_files: Iterable[str], remote_path: str) -> None:
+        """Put files."""
         remote_path = remote_path.strip("/")
-        curl_config = self._get_curl_config()
-        curl_config.append(f"upload-file = {local_file}")
-        url = f"https://{self.sftp_host}/{remote_path}/"
-        self._run_curl(curl_config, url)
+        for local_file in local_files:
+            curl_config = self._get_curl_config()
+            curl_config.append(f"upload-file = {local_file}")
+            url = f"https://{self.sftp_host}/{remote_path}/"
+            self._run_curl(curl_config, url)
 
     def delete(self, remote_file: str) -> None:
         """Delete file."""
@@ -458,9 +459,10 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     subparser_ls = subparsers.add_parser("ls", help="List files in the current SR SFTP account")
     subparser_ls.add_argument("path", help="Path to list", nargs="?", default="/")
 
-    subparser_put = subparsers.add_parser("put", help="Put file to the current SR SFTP account")
-    subparser_put.add_argument("file_name", help="File name")
-    subparser_put.add_argument("path", help="Path to put file into", nargs="?", default="incoming/")
+    subparser_put = subparsers.add_parser("put", help="Put files to the current SR SFTP account")
+    subparser_put.add_argument("file_names", help="File names to upload", nargs="+")
+    subparser_put.add_argument(
+            "--target", "-t", help="Path to put file into", default="incoming/")
 
     subparser_delete = subparsers.add_parser(
             "delete", help="Delete file from the current SR SFTP account")
@@ -490,11 +492,13 @@ def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
         for file_name in curl_session.ls(parsed_args.path):
             print(file_name)
     elif parsed_args.command == "put":
-        print(f"Putting {parsed_args.file_name} to {parsed_args.path}:")
-        curl_session.put(parsed_args.file_name, parsed_args.path)
+        print(f"Putting {parsed_args.file_names} to {parsed_args.target}:")
+        curl_session.put(parsed_args.file_names, parsed_args.target)
     elif parsed_args.command == "delete":
         print(f"Deleting {parsed_args.file_path}:")
         curl_session.delete(parsed_args.file_path)
+    else:
+        raise ValueError(f"Unknown command: {parsed_args.command}")
 
 
 def main(args: Sequence[str] | None = None):
