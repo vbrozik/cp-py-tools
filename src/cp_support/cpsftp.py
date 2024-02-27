@@ -9,19 +9,27 @@ Tested on:
     TBD
 
 Installation:
-    TBD
-    - by pasting file content
-    mkdir -p bin/lib_python/vbc
-    ...
-    cat >bin/lib_python/vbc/subprocess_ext.py
+    mkdir -p /opt/ntt/bin/
+    cat > /opt/ntt/bin/cpsftp.py
+    # Paste the content of this file
+    chmod +x /opt/ntt/bin/cpsftp.py
+    ln -s cpsftp.py /opt/ntt/bin/cpsftp
+    export PATH=$PATH:/opt/ntt/bin/
+    # Extend the PATH in .bashrc
+    if ! grep -q 'PATH=.*/opt/ntt/bin' ~/.bashrc; then
+        echo 'export PATH="$PATH:/opt/ntt/bin/"' >> ~/.bashrc
+    fi
 
 Usage:
     TBD
-    cpsftp addsr        # add SR (support ticket) SFTP account credentials extracted from stdin
-    cpsftp setsr SR_number  # set the current SR SFTP account to the SR_number
-    cpsftp get file_name    # get file_name from the current SR SFTP account
-    cpsftp put file_name    # put file_name to the current SR SFTP account
-    cpsftp ls               # list files in the current SR SFTP account
+    cpsftp sr-add           # add SR (support ticket) SFTP account credentials extracted from stdin
+    cpsftp sr-select SR_number              # set the current SR SFTP account to the SR_number
+    cpsftp sr-list                          # list SR SFTP accounts
+    cpsftp get file_name ... [-t path]      # get file_name from the current SR SFTP account
+    cpsftp put file_name ... [-t path]      # put file_name to the current SR SFTP account
+    cpsftp delete file_name_path            # delete file_name from the current SR SFTP account
+    cpsftp ls [path]                        # list files in the current SR SFTP account
+    cpsftp -p proxy_host:proxy_port ...     # use HTTP proxy
 """
 
 
