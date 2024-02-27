@@ -103,7 +103,7 @@ class FileListItem(NamedTuple):
     """File list item."""
     file_name: str
     file_size: int
-    file_date_time: datetime.datetime
+    file_time: datetime.datetime
     file_path: str | None = None
 
     @classmethod
@@ -112,12 +112,12 @@ class FileListItem(NamedTuple):
         return cls(
                 file_name=cell[0],
                 file_size=int(cell[1]),
-                file_date_time=datetime.datetime.strptime(cell[2], "%m/%d/%Y %H:%M:%S"),
+                file_time=datetime.datetime.strptime(cell[2], "%m/%d/%Y %H:%M:%S"),
                 file_path=cell[3] if len(cell) > 3 else None)
 
     def __str__(self) -> str:
         """String representation."""
-        return f"{self.file_name} {self.file_size} {self.file_date_time.isoformat()}"
+        return f"{self.file_name} {self.file_size} {self.file_time.isoformat()}"
 
 
 @dataclasses.dataclass
@@ -235,14 +235,14 @@ class SRAccount:
     account_name: str
     account_password: str
     sftp_host: str
-    account_birth_date: datetime.datetime = dataclasses.field(
+    account_birth_time: datetime.datetime = dataclasses.field(
             default_factory=Global.get_current_date_time)
-    account_password_birth_date: datetime.datetime = dataclasses.field(
+    account_password_birth_time: datetime.datetime = dataclasses.field(
             default_factory=Global.get_current_date_time)
-    last_used_date_time: datetime.datetime = dataclasses.field(
+    last_used_time: datetime.datetime = dataclasses.field(
             default_factory=Global.get_current_date_time)
     DATETIME_ATTRIBUTES: ClassVar[set[str]] = {
-            "account_birth_date", "account_password_birth_date", "last_used_date_time"}
+            "account_birth_time", "account_password_birth_time", "last_used_time"}
 
     @classmethod
     def _split_datetime_attributes(cls, dict_content: dict[str, Any]) -> dict[str, Any]:
@@ -326,12 +326,12 @@ class SRAccount:
         assert self.account_name == other.account_name, "Update expected for the same account"
         self.account_password = other.account_password
         self.sftp_host = other.sftp_host
-        self.account_password_birth_date = other.account_password_birth_date
-        self.last_used_date_time = other.last_used_date_time
+        self.account_password_birth_time = other.account_password_birth_time
+        self.last_used_time = other.last_used_time
 
     def list_str(self) -> str:
         """List string."""
-        return f"{self.account_name:<14} {self.last_used_date_time:%Y-%m-%d %H:%M}"
+        return f"{self.account_name:<14} {self.last_used_time:%Y-%m-%d %H:%M}"
 
     @classmethod
     def list_str_header(cls) -> str:
@@ -367,7 +367,7 @@ class Config:
         """Sort config accounts by last_used_date."""
         self.config_accounts = dict(sorted(
             self.config_accounts.items(),
-            key=lambda key_value: key_value[1].last_used_date_time,
+            key=lambda key_value: key_value[1].last_used_time,
             reverse=True))
 
     def add_sr_account(self, sr_account: SRAccount) -> None:
@@ -428,7 +428,7 @@ class Config:
         """Select SR account."""
         if account_name not in self.config_accounts:
             raise ValueError(f"SR account {account_name} not found")
-        self.config_accounts[account_name].last_used_date_time = Global.get_current_date_time()
+        self.config_accounts[account_name].last_used_time = Global.get_current_date_time()
         self._sort_config_accounts()
 
     def get_active_sr_account(self) -> SRAccount:
