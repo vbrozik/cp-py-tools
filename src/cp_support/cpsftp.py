@@ -479,16 +479,33 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
+def get_gaia_http_proxy() -> tuple[str, int]:
+    """Get HTTP proxy configuration from Gaia, return host and port."""
+    proxy_host = subprocess.run(
+            ["dbget", "proxy:ip-address"], capture_output=True, check=True, text=True
+            ).stdout.strip()
+    proxy_port = int(subprocess.run(
+            ["dbget", "proxy:port"], capture_output=True, check=True, text=True
+            ).stdout.strip())
+    return proxy_host, proxy_port
+
+
+def is_gaia() -> bool:
+    """Check if the script is running on Gaia."""
+    return Path("/etc/cp-release").exists()
+
+
 def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
     """SFTP commands."""
     sftp_account = config.get_active_sr_account()
     print(f"Using SFTP account: {sftp_account.account_name}")
-    sftp_additional_arguments = {}
+    sftp_additional_arguments: dict[str, Any] = {}
     if parsed_args.proxy:
         proxy_host, proxy_port = parsed_args.proxy.split(":")
-        sftp_additional_arguments.update(
-                proxy_host=proxy_host,
-                proxy_port=int(proxy_port))
+        sftp_additional_arguments.update(proxy_host=proxy_host, proxy_port=int(proxy_port))
+    elif parsed_args.proxy != "" and is_gaia():
+        gaia_proxy_host, gaia_proxy_port = get_gaia_http_proxy()
+        sftp_additional_arguments.update(proxy_host=gaia_proxy_host, proxy_port=gaia_proxy_port)
     curl_session = SFTPSessionCurl(
             login_name=sftp_account.account_name,
             login_password=sftp_account.account_password,
