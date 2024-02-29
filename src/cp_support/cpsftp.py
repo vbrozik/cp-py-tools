@@ -52,7 +52,11 @@ PROG_NAME: str = "cpsftp"
 
 XDG_CONFIG_HOME_VAR: str = "XDG_CONFIG_HOME"
 XDG_CONFIG_HOME_DEFAULT: str = "~/.config"
-XDG_CONFIG_FILE: str = f"{PROG_NAME}.json"
+GLOBAL_DIR_PREFIX: str = "/opt/ntt"
+GLOBAL_CONFIG_DIR: str = f"{GLOBAL_DIR_PREFIX}/config"
+CREATE_GLOBAL_CONFIG: bool = True               # Create global config if no config exists.
+
+CONFIG_FILE: str = f"{PROG_NAME}.json"
 JSON_CONFIG_ENCODING: str = "utf-8"
 
 CURL_BINARIES: tuple[str, ...] = ("curl", "curl_cli")
@@ -369,9 +373,13 @@ class Config:
         if config_file is not None:
             self.config_file = config_file
         else:
-            config_dir = os.path.expanduser(
+            config_file_user = Path(os.path.expanduser(
                     os.environ.get(XDG_CONFIG_HOME_VAR, XDG_CONFIG_HOME_DEFAULT))
-            self.config_file = Path(config_dir) / XDG_CONFIG_FILE
+                    ) / CONFIG_FILE
+            if config_file_user.exists() or not CREATE_GLOBAL_CONFIG:
+                self.config_file = config_file_user
+            else:
+                self.config_file = Path(GLOBAL_CONFIG_DIR) / CONFIG_FILE
         self.config_accounts = {}
 
     def _sort_config_accounts(self) -> None:
