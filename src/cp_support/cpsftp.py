@@ -11,7 +11,7 @@ Tested on:
 Installation:
     mkdir -p /opt/ntt/bin/
     cat > /opt/ntt/bin/cpsftp.py
-    # Paste the content of this file
+    # Paste the content of this file and press Ctrl+D
     chmod +x /opt/ntt/bin/cpsftp.py
     ln -s cpsftp.py /opt/ntt/bin/cpsftp
     export PATH=$PATH:/opt/ntt/bin/
@@ -49,10 +49,12 @@ from typing import Any, ClassVar, Dict, Iterable, List, NamedTuple, Sequence, ca
 
 
 PROG_NAME: str = "cpsftp"
+
 XDG_CONFIG_HOME_VAR: str = "XDG_CONFIG_HOME"
 XDG_CONFIG_HOME_DEFAULT: str = "~/.config"
 XDG_CONFIG_FILE: str = f"{PROG_NAME}.json"
 JSON_CONFIG_ENCODING: str = "utf-8"
+
 CURL_BINARIES: tuple[str, ...] = ("curl", "curl_cli")
 """Curl binaries to try."""
 CURL_TIMEOUT: int = 15
@@ -447,9 +449,7 @@ class Config:
 
 def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
-    parser = argparse.ArgumentParser(
-        description='SFTP client for Check Point support.',
-        epilog='For more information, see...')
+    parser = argparse.ArgumentParser(description='SFTP client for Check Point support.')
 
     parser.add_argument(
         "--proxy", "-p", help="Use HTTP proxy host:port", metavar="host:port")
@@ -532,9 +532,8 @@ def main(args: Sequence[str] | None = None):
     # print(parsed_args)
     Global.initialize()
     with Config() as config:
-        # config.debug_print()
         if parsed_args.command == "sr-add":
-            print("\nPaste the text from the ticket with account credentials and press Ctrl-D:")
+            print("\nPaste the text from the ticket with account credentials and press Ctrl+D:")
             config.add_sr_account(SRAccount.from_sr_text(sys.stdin.read()))
         elif parsed_args.command == "sr-list":
             config.list_sr_accounts()
