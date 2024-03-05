@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-"""SFTP client for Check Point support.
+"""SFTP client for exchange of files with Check Point support.
 
 Requires:
     Python 3.7+
 
 Tested on:
-    TBD
+    Gaia R81.10
 
 Installation:
     mkdir -p /opt/ntt/bin/
@@ -21,7 +21,6 @@ Installation:
     fi
 
 Usage:
-    TBD
     cpsftp sr-add           # add SR (support ticket) SFTP account credentials extracted from stdin
     cpsftp sr-select SR_number              # set the current SR SFTP account to the SR_number
     cpsftp sr-list                          # list SR SFTP accounts
@@ -29,7 +28,8 @@ Usage:
     cpsftp put file_name ... [-t path]      # put file_name to the current SR SFTP account
     cpsftp delete file_name_path            # delete file_name from the current SR SFTP account
     cpsftp ls [path]                        # list files in the current SR SFTP account
-    cpsftp -p proxy_host:proxy_port ...     # use HTTP proxy
+    Optional arguments:
+        -p proxy_host:proxy_port ...        # use HTTP proxy
 """
 
 
