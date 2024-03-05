@@ -40,6 +40,7 @@ import contextlib
 import dataclasses
 import datetime
 import json
+import logging
 import os
 import re
 import subprocess
@@ -99,13 +100,31 @@ Example SR text:
 
 
 class Global:
-    """Global variables."""
+    """Global variables.
+
+    They include start time and logger.
+    """
     current_date_time: ClassVar[datetime.datetime]
+    logger: ClassVar[logging.Logger]
 
     @classmethod
-    def initialize(cls) -> None:
+    def initialize(cls, verbosity: int = 0) -> None:
         """Initialize."""
         cls.current_date_time = datetime.datetime.now().astimezone()
+        cls.logger = logging.getLogger(PROG_NAME)
+        cls.logger.setLevel(cls.log_level_from_verbosity(verbosity))
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+                logging.Formatter(
+                        fmt="%(levelname)-8s %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S"))
+        cls.logger.addHandler(handler)
+        cls.logger.info("Using log level: %s", logging.getLevelName(cls.logger.level))
+
+    @staticmethod
+    def log_level_from_verbosity(verbosity: int) -> int:
+        """Get log level from verbosity."""
+        return max(logging.ERROR - 10 * verbosity, logging.DEBUG)
 
     @classmethod
     def get_current_date_time(cls) -> datetime.datetime:
@@ -159,7 +178,7 @@ class SFTPSessionCurl:
                         [curl_bin, "--version"], stdout=subprocess.PIPE, check=True)
                 if result.stdout.startswith(b"curl "):
                     return curl_bin
-                raise RuntimeError(f"{curl_bin} does not look like curl")
+                raise RuntimeError(f"Program {curl_bin} does not behave like curl.")
         return None
 
     def _get_curl_config(self) -> list[str]:
@@ -380,6 +399,7 @@ class Config:
                 self.config_file = config_file_user
             else:
                 self.config_file = Path(GLOBAL_CONFIG_DIR) / CONFIG_FILE
+        Global.logger.debug("Using config file: %s", self.config_file)
         self.config_accounts = {}
 
     def _sort_config_accounts(self) -> None:
@@ -399,6 +419,7 @@ class Config:
 
     def _initiate_config_file(self) -> None:
         """Initiate config file."""
+        Global.logger.debug("Initiating config file: %s", self.config_file)
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_file, "w", encoding=JSON_CONFIG_ENCODING) as json_file:
             json.dump({CONFIG_SR_ACCOUNTS_KEY: []}, json_file, indent=4)
@@ -461,6 +482,8 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 
     parser.add_argument(
         "--proxy", "-p", help="Use HTTP proxy host:port", metavar="host:port")
+    parser.add_argument(
+        "--verbosity", "-v", help="Verbosity level", type=int, default=0)
 
     subparsers = parser.add_subparsers(dest="command")
     subparsers.required = True
@@ -506,7 +529,7 @@ def is_gaia() -> bool:
 def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
     """SFTP commands."""
     sftp_account = config.get_active_sr_account()
-    print(f"Using SFTP account: {sftp_account.account_name}")
+    Global.logger.info("Using SFTP account: %s", sftp_account.account_name)
     sftp_additional_arguments: dict[str, Any] = {}
     if parsed_args.proxy:
         proxy_host, proxy_port = parsed_args.proxy.split(":")
@@ -537,8 +560,7 @@ def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
 def main(args: Sequence[str] | None = None):
     """Main function."""
     parsed_args = parse_cli_args(args)
-    # print(parsed_args)
-    Global.initialize()
+    Global.initialize(verbosity=parsed_args.verbosity)
     with Config() as config:
         if parsed_args.command == "sr-add":
             print("\nPaste the text from the ticket with account credentials and press Ctrl+D:")
