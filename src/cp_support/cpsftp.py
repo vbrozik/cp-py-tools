@@ -41,6 +41,7 @@ import dataclasses
 import datetime
 import json
 import logging
+import operator
 import os
 import re
 import subprocess
@@ -132,6 +133,11 @@ class Global:
         return cls.current_date_time
 
 
+def format_not_none(value: Any, format_spec: str = "", none_str = "None") -> str:
+    """Format the value or return none_str if the value is None."""
+    return none_str if value is None else format(value, format_spec)
+
+
 class FileListItem(NamedTuple):
     """File list item."""
     file_name: str
@@ -165,6 +171,18 @@ class FileListItem(NamedTuple):
                 file_size=int(cell[1]),
                 file_time=cls._parse_time(cell[2]),
                 file_path=cell[3] if len(cell) > 3 else None)
+
+    @staticmethod
+    def str_tabular_header() -> str:
+        """String tabular header."""
+        header = ('Date', 'Time', 'Size', 'Name')
+        return f"{header[0]:<10} {header[1]:<5} {header[2]:<10} {header[3]}"
+
+    def str_tabular(self) -> str:
+        """String tabular representation."""
+        return (
+                f"{format_not_none(self.file_time, '%Y-%m-%d %H:%M'):<10} "
+                f"{self.file_size:>10} {self.file_name}")
 
     def __str__(self) -> str:
         """String representation."""
@@ -533,6 +551,7 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 
     subparser_ls = subparsers.add_parser("ls", help="List files in the current SR SFTP account")
     subparser_ls.add_argument("path", help="Path to list", nargs="?", default="/")
+    subparser_ls.add_argument("--sort", help="Sort by", choices=["time"])
 
     subparser_put = subparsers.add_parser("put", help="Put files to the current SR SFTP account")
     subparser_put.add_argument("file_names", help="File names to upload", nargs="+")
@@ -580,9 +599,17 @@ def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
             **sftp_additional_arguments)
     curl_session.initialize()
     if parsed_args.command == "ls":
-        print(f"Listing files in {parsed_args.path}:")
-        for file_name in curl_session.ls(parsed_args.path):
-            print(file_name)
+        Global.logger.info("Listing files in %s:", parsed_args.path)
+
+        def ls_sort_key(file_list_item: FileListItem) -> Any:
+            del file_list_item
+            return 0
+        if parsed_args.sort == "time":
+            # flake8: noqa  # redefinition of unused 'ls_sort_key' ; Flake8(F811)
+            ls_sort_key = operator.attrgetter("file_time")  # type: ignore  # pylance
+        print(FileListItem.str_tabular_header())
+        for file_item in sorted(curl_session.ls(parsed_args.path), key=ls_sort_key):
+            print(file_item.str_tabular())
     elif parsed_args.command == "put":
         print(f"Putting {parsed_args.file_names} to {parsed_args.target}:")
         curl_session.put(parsed_args.file_names, parsed_args.target)
