@@ -140,10 +140,10 @@ def format_not_none(value: Any, format_spec: str = "", none_str = "None") -> str
 
 class FileListItem(NamedTuple):
     """File list item."""
-    file_name: str
-    file_size: int
-    file_time: datetime.datetime | None = None
-    file_path: str | None = None
+    name: str
+    size: int
+    time: datetime.datetime | None = None
+    path: str | None = None
 
     @staticmethod
     def _parse_time(time_str: str) -> datetime.datetime | None:
@@ -167,10 +167,10 @@ class FileListItem(NamedTuple):
     def from_cell(cls, cell: Sequence[str]) -> FileListItem:
         """Initialize from cell."""
         return cls(
-                file_name=cell[0],
-                file_size=int(cell[1]),
-                file_time=cls._parse_time(cell[2]),
-                file_path=cell[3] if len(cell) > 3 else None)
+                name=cell[0],
+                size=int(cell[1]),
+                time=cls._parse_time(cell[2]),
+                path=cell[3] if len(cell) > 3 else None)
 
     @staticmethod
     def str_tabular_header() -> str:
@@ -181,14 +181,14 @@ class FileListItem(NamedTuple):
     def str_tabular(self) -> str:
         """String tabular representation."""
         return (
-                f"{format_not_none(self.file_time, '%Y-%m-%d %H:%M'):<10} "
-                f"{self.file_size:>10} {self.file_name}")
+                f"{format_not_none(self.time, '%Y-%m-%d %H:%M'):<10} "
+                f"{self.size:>10} {self.name}")
 
     def __str__(self) -> str:
         """String representation."""
-        values = [self.file_name, str(self.file_size)]
-        if self.file_time is not None:
-            values.append(self.file_time.isoformat())
+        values = [self.name, str(self.size)]
+        if self.time is not None:
+            values.append(self.time.isoformat())
         return " ".join(values)
 
 
