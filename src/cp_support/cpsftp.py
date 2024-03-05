@@ -136,8 +136,26 @@ class FileListItem(NamedTuple):
     """File list item."""
     file_name: str
     file_size: int
-    file_time: datetime.datetime
+    file_time: datetime.datetime | None = None
     file_path: str | None = None
+
+    @staticmethod
+    def _parse_time(time_str: str) -> datetime.datetime | None:
+        """Parse time from the listing.
+
+        Unfortunately the servers use various time formats.
+        """
+        FORMATS = (
+                # 03/01/2024 16:11:19
+                "%m/%d/%Y %H:%M:%S",    # USA (most common)
+                # 2024-03-01T16:11:19Z
+                    "%Y-%m-%dT%H:%M:%SZ",   # ISO 8601 Zulu time (fairfax.ott.checkpoint.com)
+        )
+        for time_format in FORMATS:
+            with contextlib.suppress(ValueError):
+                return datetime.datetime.strptime(time_str, time_format)
+        Global.logger.warning("Unknown time format: %s", time_str)
+        return None
 
     @classmethod
     def from_cell(cls, cell: Sequence[str]) -> FileListItem:
@@ -145,12 +163,15 @@ class FileListItem(NamedTuple):
         return cls(
                 file_name=cell[0],
                 file_size=int(cell[1]),
-                file_time=datetime.datetime.strptime(cell[2], "%m/%d/%Y %H:%M:%S"),
+                file_time=cls._parse_time(cell[2]),
                 file_path=cell[3] if len(cell) > 3 else None)
 
     def __str__(self) -> str:
         """String representation."""
-        return f"{self.file_name} {self.file_size} {self.file_time.isoformat()}"
+        values = [self.file_name, str(self.file_size)]
+        if self.file_time is not None:
+            values.append(self.file_time.isoformat())
+        return " ".join(values)
 
 
 @dataclasses.dataclass
@@ -185,7 +206,8 @@ class SFTPSessionCurl:
         """Get curl config."""
         curl_config = [
                 "insecure",     # TODO: use proper certificate validation
-                "silent",
+                "silent",       # suppress progress meter
+                "show-error",   # show error messages (normally suppressed by silent)
                 f"user = {self.login_name}:{self.login_password}",
                 ]
         if self._proxy_args is not None:
@@ -202,7 +224,7 @@ class SFTPSessionCurl:
             self._proxy_args = (
                     f"proxy = {self.proxy_host}:{self.proxy_port}")
 
-    def _run_curl(self, curl_config: Iterable[str], url: str) -> str:
+    def _run_curl(self, curl_config: Sequence[str], url: str) -> str:
         """Run curl."""
         if self._curl_bin is None:
             raise RuntimeError("curl binary not found")
@@ -211,11 +233,25 @@ class SFTPSessionCurl:
                     "--config", "-",    # read config from stdin
                     "--url", url,
                 )
+        if Global.logger.isEnabledFor(logging.DEBUG):
+            Global.logger.debug("Running curl:")
+            Global.logger.debug("  config: %s", curl_config)
+            Global.logger.debug("  arguments: %s", arguments)
         result = subprocess.run(
                 arguments,
                 input="\n".join(curl_config).encode(),
                 capture_output=True,
-                check=True)
+                check=False)
+        if Global.logger.isEnabledFor(logging.DEBUG):
+            Global.logger.debug("curl result:")
+            Global.logger.debug("  returncode: %s", result.returncode)
+            Global.logger.debug("  stdout: %s", result.stdout.decode())
+            Global.logger.debug("  stderr: %s", result.stderr.decode())
+        if result.returncode:
+            if result.stderr and re.search(
+                    r"Received HTTP code 40[137] from proxy after CONNECT", result.stderr.decode()):
+                Global.logger.error("Proxy requires authentication or authorization.")
+            raise RuntimeError(f"curl error {result.returncode}: {result.stderr.decode()}")
         if result.stderr:
             raise RuntimeError(f"curl error: {result.stderr.decode()}")
         decoded_output = result.stdout.decode()
