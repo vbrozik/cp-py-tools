@@ -478,6 +478,14 @@ class Config:
         with open(self.config_file, "w", encoding=JSON_CONFIG_ENCODING) as json_file:
             json.dump({CONFIG_SR_ACCOUNTS_KEY: []}, json_file, indent=4)
 
+    def _get_sr_accounts_dict(self) -> SRAccountListJSON:
+        """Get SR accounts dict."""
+        return [account.to_dict() for account in self.config_accounts.values()]
+
+    def export_sr_accounts(self, stream_handle: IO[str]) -> None:
+        """Export SR accounts."""
+        json.dump(self._get_sr_accounts_dict(), stream_handle, indent=4)
+
     def __enter__(self) -> Config:
         """Create empty config file if nonexistent, load it and enter the context."""
         if not self.config_file.exists():
@@ -497,11 +505,7 @@ class Config:
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         del exc_type, exc_value, traceback
         self._sort_config_accounts()
-        config_content_raw: CPSftpJSON = {
-                CONFIG_SR_ACCOUNTS_KEY: [
-                    account.to_dict()
-                    for account in self.config_accounts.values()
-                    ]}
+        config_content_raw: CPSftpJSON = {CONFIG_SR_ACCOUNTS_KEY: self._get_sr_accounts_dict()}
         with open(self.config_file, "w", encoding=JSON_CONFIG_ENCODING) as json_file:
             json.dump(config_content_raw, json_file, indent=4)
 
@@ -545,6 +549,10 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     subparsers.add_parser("sr-add", help="Add SR SFTP account")
 
     subparsers.add_parser("sr-list", help="List SR SFTP accounts")
+
+    subparsers.add_parser("sr-export", help="Export SR SFTP accounts")
+
+    subparsers.add_parser("sr-config", help="Show SR SFTP account configuration file path")
 
     subparser_sr_select = subparsers.add_parser("sr-select", help="Select SR SFTP account")
     subparser_sr_select.add_argument("account_name", help="SR SFTP account name (SR number)")
@@ -630,6 +638,10 @@ def main(args: Sequence[str] | None = None):
             config.add_sr_account(SRAccount.from_sr_text(sys.stdin.read()))
         elif parsed_args.command == "sr-list":
             config.list_sr_accounts()
+        elif parsed_args.command == "sr-export":
+            config.export_sr_accounts(sys.stdout)
+        elif parsed_args.command == "sr-config":
+            print(config.config_file)
         elif parsed_args.command == "sr-select":
             config.select_sr_account(parsed_args.account_name)
             print(f"selected SFTP account: {parsed_args.account_name}")
