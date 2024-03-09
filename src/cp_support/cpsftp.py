@@ -606,7 +606,7 @@ def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
             return 0
         if parsed_args.sort == "time":
             # flake8: noqa  # redefinition of unused 'ls_sort_key' ; Flake8(F811)
-            ls_sort_key = operator.attrgetter("file_time")  # type: ignore  # pylance
+            ls_sort_key = operator.attrgetter("time")  # type: ignore  # pylance
         print(FileListItem.str_tabular_header())
         for file_item in sorted(curl_session.ls(parsed_args.path), key=ls_sort_key):
             print(file_item.str_tabular())
