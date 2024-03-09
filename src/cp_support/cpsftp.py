@@ -47,10 +47,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Iterable, List, NamedTuple, Sequence, cast
+from typing import IO, Any, ClassVar, Dict, Iterable, List, NamedTuple, Sequence, cast
 
 
 PROG_NAME: str = "cpsftp"
+PROG_VERSION: str = "0.1.0.2024030801"
 
 XDG_CONFIG_HOME_VAR: str = "XDG_CONFIG_HOME"
 XDG_CONFIG_HOME_DEFAULT: str = "~/.config"
@@ -546,6 +547,8 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command")
     subparsers.required = True
 
+    subparsers.add_parser("version", help="Show version")
+
     subparsers.add_parser("sr-add", help="Add SR SFTP account")
 
     subparsers.add_parser("sr-list", help="List SR SFTP accounts")
@@ -633,7 +636,9 @@ def main(args: Sequence[str] | None = None):
     parsed_args = parse_cli_args(args)
     Global.initialize(verbosity=parsed_args.verbosity)
     with Config() as config:
-        if parsed_args.command == "sr-add":
+        if parsed_args.command == "version":
+            print(f"{PROG_NAME} version {PROG_VERSION}")
+        elif parsed_args.command == "sr-add":
             print("\nPaste the text from the ticket with account credentials and press Ctrl+D:")
             config.add_sr_account(SRAccount.from_sr_text(sys.stdin.read()))
         elif parsed_args.command == "sr-list":
