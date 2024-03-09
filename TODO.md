@@ -20,3 +20,4 @@
 - Add function to wait for new files to stop changing or to appear
 - Write tests
 - Split `curl` code into a separate module
+- Add password encryption using for example `openssl enc` (on Gaia `$CPDIR/bin/cpopenssl`).
