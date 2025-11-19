@@ -2,11 +2,14 @@
 
 """SFTP client for exchange of files with Check Point support.
 
+Author:
+    Václav Brožík
+
 Requires:
     Python 3.7+
 
 Tested on:
-    Gaia R81.10
+    Check Point Gaia R81.10
 
 Installation:
     mkdir -p /opt/ntt/bin/
@@ -14,7 +17,7 @@ Installation:
     # Paste the content of this file and press Ctrl+D
     chmod +x /opt/ntt/bin/cpsftp.py
     ln -s cpsftp.py /opt/ntt/bin/cpsftp
-    export PATH=$PATH:/opt/ntt/bin/
+    export PATH=$PATH:/opt/ntt/bin
     # Extend the PATH in .bashrc
     if ! grep -q 'PATH=.*/opt/ntt/bin' ~/.bashrc; then
         echo 'export PATH="$PATH:/opt/ntt/bin/"' >> ~/.bashrc
@@ -84,6 +87,8 @@ SR_TEXT_REGEXES: dict[str, re.Pattern[str]] = {
     }
 r"""
 Regular expressions to parse SR text.
+
+The dict keys are the capture group names. The values are the compiled regexes.
 
 When a regex contains multiple capture groups for the same key, we add a suffix to the key
 to distinguish the groups. The suffix is "__\d+". The Python re module does not allow having
