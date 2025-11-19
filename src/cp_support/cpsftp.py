@@ -82,7 +82,8 @@ SR_TEXT_REGEXES: dict[str, re.Pattern[str]] = {
             re.IGNORECASE),
     "sftp_host": re.compile(
             rf".*\s+port\s+22\s+to\s+(?P<sftp_host__1>{FQDN_RE_STR})\s*|"
-            rf".*\s+https://(?P<sftp_host__2>{FQDN_RE_STR})/?\s*",
+            rf".*\s+https://(?P<sftp_host__2>{FQDN_RE_STR})/?\s*|"
+            rf".*\bsftp\s+(\w+@)?(?P<sftp_host__3>{FQDN_RE_STR})\b.*",
             re.IGNORECASE),
     }
 r"""
