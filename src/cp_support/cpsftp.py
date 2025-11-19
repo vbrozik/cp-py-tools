@@ -54,7 +54,7 @@ from typing import IO, Any, ClassVar, Dict, Iterable, List, NamedTuple, Sequence
 
 
 PROG_NAME: str = "cpsftp"
-PROG_VERSION: str = "0.1.0.2024030801"
+PROG_VERSION: str = "0.1.0.2024091201"
 
 XDG_CONFIG_HOME_VAR: str = "XDG_CONFIG_HOME"
 XDG_CONFIG_HOME_DEFAULT: str = "~/.config"
@@ -302,6 +302,19 @@ class SFTPSessionCurl:
             curl_config = self._get_curl_config()
             curl_config.append(f"upload-file = {local_file}")
             url = f"https://{self.sftp_host}/{remote_path}/"
+            self._run_curl(curl_config, url)
+
+    def get(self, remote_files: Iterable[str], remote_path: str) -> None:
+        """Get files."""
+        remote_path = remote_path.strip("/")
+        for remote_file in remote_files:
+            curl_config = self._get_curl_config()
+            file_name = Path(remote_file).name
+            curl_config.append(f"output = {file_name}")
+            current_remote_path = f"/{remote_path}/" if remote_path else "/"
+            if remote_file[0] == "/":
+                current_remote_path = ""
+            url = f"https://{self.sftp_host}{current_remote_path}{remote_file}"
             self._run_curl(curl_config, url)
 
     def delete(self, remote_file: str) -> None:
@@ -575,6 +588,11 @@ def parse_cli_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     subparser_put.add_argument(
             "--target", "-t", help="Path to put file into", default="incoming/")
 
+    subparser_get = subparsers.add_parser("get", help="Get files from the current SR SFTP account")
+    subparser_get.add_argument("file_names", help="File names to download", nargs="+")
+    subparser_get.add_argument(
+            "--source", "-s", help="Path to get file from", default="outgoing/")
+
     subparser_delete = subparsers.add_parser(
             "delete", help="Delete file from the current SR SFTP account")
     subparser_delete.add_argument("file_path", help="Path of file to delete")
@@ -630,6 +648,9 @@ def sftp_commands(parsed_args: argparse.Namespace, config: Config) -> None:
     elif parsed_args.command == "put":
         print(f"Putting {parsed_args.file_names} to {parsed_args.target}:")
         curl_session.put(parsed_args.file_names, parsed_args.target)
+    elif parsed_args.command == "get":
+        print(f"Getting {parsed_args.file_names} from {parsed_args.source}:")
+        curl_session.get(parsed_args.file_names, parsed_args.source)
     elif parsed_args.command == "delete":
         print(f"Deleting {parsed_args.file_path}:")
         curl_session.delete(parsed_args.file_path)
