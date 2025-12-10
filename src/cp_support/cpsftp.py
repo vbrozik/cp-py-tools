@@ -9,7 +9,7 @@ Requires:
     Python 3.7+
 
 Tested on:
-    Check Point Gaia R81.10
+    Check Point Gaia R81.10, R81.20, Ubuntu 22.04
 
 Installation:
     mkdir -p /opt/ntt/bin/
@@ -33,6 +33,11 @@ Usage:
     cpsftp ls [path]                        # list files in the current SR SFTP account
     Optional arguments:
         -p proxy_host:proxy_port ...        # use HTTP proxy
+
+TODO:
+    * before release:
+        * Implement proper certificate validation instead of --insecure.
+        * Implement password encryption or a secure storage.
 """
 
 
@@ -637,7 +642,7 @@ def get_gaia_http_proxy() -> tuple[str, int]:
 
 
 def is_gaia() -> bool:
-    """Check if the script is running on Gaia."""
+    """Check if the script is running on Check Point Gaia."""
     return Path("/etc/cp-release").exists()
 
 
