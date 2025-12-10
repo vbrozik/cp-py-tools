@@ -54,7 +54,7 @@ from typing import IO, Any, ClassVar, Dict, Iterable, List, NamedTuple, Sequence
 
 
 PROG_NAME: str = "cpsftp"
-PROG_VERSION: str = "0.1.0.2024091201"
+PROG_VERSION: str = "0.1.0.2025121001"
 
 XDG_CONFIG_HOME_VAR: str = "XDG_CONFIG_HOME"
 XDG_CONFIG_HOME_DEFAULT: str = "~/.config"
