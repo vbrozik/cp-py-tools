@@ -227,13 +227,36 @@ class SFTPSessionCurl:
                 raise RuntimeError(f"Program {curl_bin} does not behave like curl.")
         return None
 
+    @staticmethod
+    def _escape_curl_config_string(value: str) -> str:
+        """Escape curl config string.
+        
+        See https://curl.se/docs/manpage.html#--config
+        The string will be enclosed in double quotes (").
+        Following characters need to be escaped with backslash:
+        \n, \r, \t, \v, \", \\
+        """
+        escape_map = {
+                "\n": r"\n",
+                "\r": r"\r",
+                "\t": r"\t",
+                "\v": r"\v",
+                '"': r'\"',
+                "\\": r"\\",
+                }
+        for char, escaped_char in escape_map.items():
+            value = value.replace(char, escaped_char)
+        return f'"{value}"'
+
     def _get_curl_config(self) -> list[str]:
         """Get curl config."""
+        user_value = self._escape_curl_config_string(
+                f"{self.login_name}:{self.login_password}")
         curl_config = [
                 "insecure",     # TODO: use proper certificate validation
                 "silent",       # suppress progress meter
                 "show-error",   # show error messages (normally suppressed by silent)
-                f"user = {self.login_name}:{self.login_password}",
+                f"user = {user_value}",
                 ]
         if self._proxy_args is not None:
             curl_config.append(self._proxy_args)
@@ -300,7 +323,8 @@ class SFTPSessionCurl:
         remote_path = remote_path.strip("/")
         for local_file in local_files:
             curl_config = self._get_curl_config()
-            curl_config.append(f"upload-file = {local_file}")
+            escaped_local_file = self._escape_curl_config_string(local_file)
+            curl_config.append(f"upload-file = {escaped_local_file}")
             url = f"https://{self.sftp_host}/{remote_path}/"
             self._run_curl(curl_config, url)
 
@@ -309,8 +333,8 @@ class SFTPSessionCurl:
         remote_path = remote_path.strip("/")
         for remote_file in remote_files:
             curl_config = self._get_curl_config()
-            file_name = Path(remote_file).name
-            curl_config.append(f"output = {file_name}")
+            escaped_file_name = self._escape_curl_config_string(Path(remote_file).name)
+            curl_config.append(f"output = {escaped_file_name}")
             current_remote_path = f"/{remote_path}/" if remote_path else "/"
             if remote_file[0] == "/":
                 current_remote_path = ""
@@ -322,6 +346,7 @@ class SFTPSessionCurl:
         remote_file = remote_file.lstrip("/")
         curl_config = self._get_curl_config()
         curl_config.append("request = DELETE")
+        # FIXME: URL encoding of remote_file?
         url = f"https://{self.sftp_host}/{remote_file}"
         self._run_curl(curl_config, url)
 
